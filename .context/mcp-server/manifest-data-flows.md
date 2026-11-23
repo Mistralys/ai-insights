@@ -66,7 +66,7 @@ LedgerStore.writeRootIndex()
 atomicWriteJson(storage/ledger/{repoName}/{slug}/project-ledger.json)
   ↓
   1. Create parent directories (mkdir -p)
-  2. Write to {file}.tmp.{pid}
+  2. Write to {file}.tmp.{pid}.{uuid}
   3. Atomically rename to storage/ledger/{repoName}/{slug}/project-ledger.json
   ↓
 store.writeProjectMeta() — auto-synced after root index write
@@ -1300,7 +1300,7 @@ store.writeProjectMeta('', validated.status, { ...counters, duration_ms: duratio
 
 `active_ms` / `pipeline_runs` are not computed by `writeRootIndex()` — it has no access to WP detail files and runs on every WP write, so it cannot afford the fan-out read. They are instead written once, directly, by `completeSynthesis()` (Flow 14) via `computeWpActiveMs()`.
 
-**GUI read path (`handleGetProject`):** For `duration_ms` — prefers `meta.duration_ms` when present (fast path — no I/O beyond the already-loaded meta file); when absent but computable from the loaded root index, computes it inline and returns it in `timing.project_elapsed_ms`. For `active_ms` / `pipeline_runs` — always recomputes the authoritative sum via `computeWpActiveMs()` across every already-loaded WP detail (the endpoint reads every WP file regardless, for `timing.total_active_ms` / `timing.pipeline_runs`), and compares it against the cached `meta.active_ms` / `meta.pipeline_runs`. When any correction is needed — a stale/absent `active_ms`/`pipeline_runs`, or a `duration_ms` computed via the legacy fallback — **all of it is collected into one `MetaCacheUpdates` object and flushed in a single non-blocking `writeProjectMeta(..., { preserveLastUpdated: true })` call**, never as separate calls: two independent unlocked read-modify-write calls against the same `.meta.json` would race, with the later write silently discarding the earlier one's update. `preserveLastUpdated: true` is mandatory — without it, a mere detail-view cache refresh would bump `last_updated` and distort the project-list sort order. The self-heal for both fields is gated on `rootIndex.synthesis_generated_at`: an unsynthesised project has `timing` returned to the caller but nothing written to `.meta.json`, keeping the list column blank for it exactly as before this change.
+**GUI read path (`handleGetProject`):** For `duration_ms` — prefers `meta.duration_ms` when present (fast path — no I/O beyond the already-loaded meta file); when absent but computable from the loaded root index, computes it inline and returns it in `timing.project_elapsed_ms`. For `active_ms` / `pipeline_runs` — always recomputes the authoritative sum via `computeWpActiveMs()` across every already-loaded WP detail (the endpoint reads every WP file regardless, for `timing.total_active_ms` / `timing.pipeline_runs`), and compares it against the cached `meta.active_ms` / `meta.pipeline_runs`. When any correction is needed — a stale/absent `active_ms`/`pipeline_runs`, or a `duration_ms` computed via the legacy fallback — **all of it is collected into one `MetaCacheUpdates` object and flushed in a single non-blocking `writeProjectMeta(..., { preserveLastUpdated: true })` call**, never as separate calls: two independent unlocked read-modify-write calls against the same `.meta.json` would race, with the later write silently discarding the earlier one's update. `preserveLastUpdated: true` is mandatory — without it, a mere detail-view cache refresh would bump `last_updated` and distort the project-list sort order. The self-heal for both fields is gated on `rootIndex.synthesis_generated_at`: an unsynthesised project has `timing` returned to the caller but nothing written to `.meta.json`, keeping the list column blank for it exactly as before this change. The write itself stays fire-and-forget (no request ever awaits it); its promise is tracked in a module-level `pendingSelfHeals` set purely so tests can await completion via `__awaitPendingSelfHealsForTesting()` instead of sleeping — see "Fire-and-Forget Self-Heal Writes Use the `pendingSelfHeals` Test Seam" in `constraints-testing.md`.
 
 **One-time backfill (`scripts/backfill-duration.js`):** For projects created before these fields existed, a root-level script scans every project directory, reads `date_created` / `synthesis_generated_at` for `duration_ms`, and separately reads every `WP-###.json` detail file (the same `${wpId}.json` convention as `LedgerStore.wpDetailPath()` — **not** the root index's `work_packages[].file`, which is not the actual on-disk path) to sum pipeline durations for `active_ms` / `pipeline_runs`. All three fields are patched into `.meta.json` directly (bypassing `writeRootIndex()`/`writeProjectMeta()` since the script runs outside the live server process). Idempotent — each field is skipped independently once already cached, so a project with `duration_ms` set still receives `active_ms` / `pipeline_runs` on a later run. Supports `--dry-run` and `--verbose`; invokable via `node scripts/cli.js backfill-duration`.
 
@@ -2169,6 +2169,250 @@ For detectProjectByCwd(cwdPath):
 - All collation is read-only — no write occurs during a read collation pass.
 - `MULTI_STORE_AMBIGUOUS` is distinct from the existing intra-store `AMBIGUOUS` — it signals a cross-store configuration issue (the same repository is registered in two stores and the same cwd matches projects in both).
 
+---
+
+## Flow R: Error-Code Allocation — Config, Repository Resolution & Temporary-Code Log
+
+**Entry point:** `allocateErrorCode()` (`mcp-server/src/error-codes/allocator.ts`) and the GUI's error-code config/test routes. This flow documents only the three storage primitives those consumers share — `config-store.ts`, `project-info.ts` and `temporary-codes.ts` — not the allocator's provider-dispatch or retry logic, which is Flow T below.
+
+**a. Config read (every allocation, no cache, no watcher):**
+
+```
+readErrorCodeConfig()                       ← the shared classification read
+  ↓
+readJsonStateFile(resolveErrorCodesDir() + '/config.json')   ← ENOENT is the only "missing"
+  ↓
+  missing?
+    → documented defaults (version 1, active_provider 'file',
+      temporary_prefix '777', timeout_ms 10000,
+      retry { default_wait_ms 11000, max_wait_ms 30000 }, providers {})
+      — { config, warning: undefined }
+  unreadable (EACCES, EISDIR, …), unparsable, or not a version-1 object?
+    → the same defaults + a `warning` carrying the fixed, sanitized
+      classification reason (never throws, never the raw parser message)
+  parsed, but fails the strict ErrorCodeConfigSchema?
+    → per-field salvage: each invalid field alone falls back to its own default,
+      every other field (providers and stored secrets included) is kept,
+      each providers.<id> that is not an object is dropped alone;
+      `warning` names the field paths, never their values
+  ↓
+  Otherwise → { config: validated ErrorCodeConfig, warning: undefined }
+```
+
+Two callers share this one read, so they can never disagree about what counts as usable:
+- `loadErrorCodeConfig()` — a thin wrapper used by `allocateErrorCode()` and every other core caller: calls `readErrorCodeConfig()`, writes any `warning` to stderr as `[error-codes] {warning}`, and returns just the `config`. No in-memory cache: both the MCP server process and the GUI server process always read the file as it is on disk at call time, trading a per-call read for never needing a cache-invalidation signal between the two processes.
+- `handleGetErrorCodeConfig` (`gui/api-error-codes.ts`) — calls `readErrorCodeConfig()` directly and returns its `warning` in the `GET /api/error-codes/config` response body, so the GUI's Error Codes tab can render the same classification as a banner (`ecConfigWarning` — see the GUI manifest's `data-flows.md`) instead of only to a stderr stream the HTTP caller never sees.
+
+**b. Config write (GUI save, or any future core mutation):**
+
+```
+updateErrorCodeConfig(mutator)
+  ↓
+withLock(resolveErrorCodesDir(), async () => {
+  state = readConfigState()               ← read happens INSIDE the lock
+  state unreadable?  → throw, write nothing (never overwrite what could not be read)
+  state corrupt (unparsable / not a config)?
+    → keepCorruptCopy(configPath)         ← config.corrupt-{stamp}.json, byte-identical
+  current = state.config                  ← defaults (corrupt), salvaged config, or the file
+  next = mutator(current)
+  validated = ErrorCodeConfigSchema.parse(next)
+  atomicWriteJson(configPath, validated, { mode: 0o600 })
+  return validated
+})
+```
+
+The corrupt file is copied, never renamed: the original is replaced by the single atomic rename inside `atomicWriteJson`, so the path is never absent and an unlocked `loadErrorCodeConfig` in another process (every allocation runs one) never reads "missing" and falls back to defaults mid-repair. Reading `current` inside the lock (rather than before acquiring it) is what makes concurrent `updateErrorCodeConfig` calls lose no update: each caller's mutator always starts from the version just written by whichever caller held the lock immediately before it. Settings stored under `providers.<id>` for a provider that is not currently installed are never inspected or stripped by this path, so they round-trip untouched across a save.
+
+**c. Repository resolution (per allocation, keyed to the agent's `cwd_path`):**
+
+```
+resolveRepositoryInfo(cwdPath)
+  ↓
+Walk upward from cwdPath until a directory containing `.git` is found
+  (no match before the filesystem root → return null)
+  ↓
+`.git` is a directory?
+  → that directory's parent is root_path (already the main checkout)
+`.git` is a file (linked worktree or submodule)?
+  → read its `gitdir:` line (relative or absolute)
+  → that git directory has a `commondir` file?
+      YES → resolve it to the shared main `.git` directory
+            → its parent is root_path (worktree → main checkout)
+      NO (submodule), or any read failure along the way
+            → root_path = the walked directory itself
+  ↓
+folder_name = basename(root_path)
+package_name = readProjectName(root_path)   ← package.json / composer.json / pyproject.toml
+  ↓
+return { root_path, folder_name, package_name }
+```
+
+**Key invariant:** every linked worktree of one repository resolves to the same `root_path`/`folder_name` as the main checkout, so a provider that scopes its sequence by repository (e.g. the `file` provider's `scope: 'repository'`) never splits one repository's sequence across its worktrees. No shell or `git` subprocess is ever invoked — the walk is a handful of `stat`/`readFile` calls over git's documented repository layout.
+
+**d. Temporary-code fallback (issued when the agent requests `temporary: true`, or when the allocator's provider dispatch — Flow T below — falls back):**
+
+```
+issueTemporaryCode(dir, prefix, entry)
+  ↓
+withLock(dir, async () => {
+  log = readTemporaryLog(dir)                ← INSIDE the lock
+    missing (ENOENT)?   → { next_counter: 1, entries: [] }
+    unreadable (EACCES, EISDIR, …)? → throw "cannot read {path} ({code})"  (fails closed; nothing is written)
+    corrupt (unparsable, an invalid entry, or next_counter missing / not above every logged code)?
+      → salvage: keep every valid entry; next_counter = max(1, stored next_counter,
+        1 + highest trailing-six-digit counter found by scanning the raw text for "code" values)
+      → mark corruption
+  n = log.next_counter
+  n exceeds 999999 (or is the reserved 0)?
+    → throw (counter exhausted)
+  corruption marked?
+    → keepCorruptCopy(path)                  ← temporary-codes.corrupt-{stamp}.json, byte-identical
+    → warning = "was corrupt … a copy was kept as … numbering continues from n"  (also written to stderr)
+  code = prefix + String(n).padStart(6, '0')  ← e.g. "777000001"; "{prefix}000000" is reserved, never issued
+  fullEntry = { ...entry, code, issued_at: now().toISOString() }
+  atomicWriteJson(dir + '/temporary-codes.json', { next_counter: n + 1, entries: [...log.entries, fullEntry] }, { mode: 0o600 })
+  return { code, warning? }
+})
+```
+
+Detection, copy and repair all happen under the lock, so two callers that meet the same corrupt log serialise: the second re-reads the repaired file and does not recover again (one copy, one warning).
+
+Each logged entry carries `code`, `issued_at`, `provider`, `fallback_reason`, `detail`, `repository` and `context` — every field the allocator (Flow T below) and the GUI's temporary-codes list need, with no provider ever able to see or influence this log.
+
+**e. Temporary-code listing (GUI `GET /api/error-codes/temporary`, a later WP):**
+
+```
+listTemporaryCodes(dir, filter?)
+  ↓
+readTemporaryLog(dir) → entries[] (+ corruption)      ← unlocked, read-only
+  ↓
+filter supplied?
+  YES → keep entries whose context OR repository contains filter as a substring
+  NO  → return every entry unchanged
+  ↓
+return { entries, warning? }   ← warning set when the log is corrupt (entries = the recoverable ones);
+                                  nothing is copied or written here — repair waits for the next issuance
+```
+
+**Key invariants:**
+- `config-store.ts`, `project-info.ts` and `temporary-codes.ts` never call each other — the allocator (Flow T below) is the only consumer that sequences all three.
+- Both config writes and temporary-code issuance serialize through `withLock`. Both normally lock the same `resolveErrorCodesDir()` directory (`temporary-codes.ts` takes `dir` as a parameter rather than hard-coding it, so a test, or a future caller, can point it elsewhere) — a concurrent config save and a concurrent temporary-code issuance therefore do briefly serialize against each other through the shared `.lock` file, which is acceptable because both operations are rare.
+- A *missing* file is the documented empty/default state for `config-store.ts` and `temporary-codes.ts`; a *corrupt* one is recovered (config: per-field fallback or defaults; temporary log: copy + salvage + warning) and never silently reset; an *unreadable* one never gets written over (config update throws; temporary-code issuance rejects). Reads never throw for config, so an allocation is never blocked by a damaged `config.json`. See "Error-Code State Files Distinguish Missing From Broken" in `constraints.md`.
+- **Concurrency with parallel processes of one user** (the MCP servers, the GUI and workflow runs share the same home-directory paths and locks): every writer re-reads inside the lock it holds; unlocked readers (`loadErrorCodeConfig`, `listTemporaryCodes`, a provider's `peek`) only ever see a complete old or new file, because `atomicWriteJson` renames a full temp file into place and nothing here ever renames a state file away.
+
+---
+
+## Flow S: Error-Code Provider Loading at Startup
+
+**Entry point:** `initProviderRegistry({ pluginDir })` (`mcp-server/src/error-codes/provider-registry.ts`), called once at startup by each process that needs the error-code provider registry — the MCP server and the GUI server independently. Each process builds and holds its own registry in module-level state; neither reads the other's.
+
+```
+initProviderRegistry({ pluginDir: resolveErrorCodePluginDir() })
+  ↓
+nextRegistry = new Map()
+  ↓
+For each provider in BUILTIN_PROVIDERS (populated by later WPs: `file`, `errorcode-incrementor`):
+  nextRegistry.set(provider.id, { provider, source: 'builtin' })
+  ↓
+loadPluginProviders(pluginDir)
+  ↓
+  readdir(pluginDir) — missing directory → { providers: [], errors: [] }, not a failure
+  ↓
+  For each top-level entry (symlinks resolved via stat; entry path stays the link path):
+    *.mjs / *.js file → import it directly
+    dangling symlink  → load error "symbolic link target is missing or unreadable"; scan continues
+    folder            → resolve entry = package.json "main", else index.mjs
+                         (no "exports" map resolution)
+                         neither present → load error naming the folder
+    other              → skipped
+    ↓
+    import(pathToFileURL(entryModulePath).href), raced against a 10 s per-plugin timeout
+      not settled in time?
+        → load error "import timed out after {n} ms"; scan continues (import not cancelled, never registered)
+      throws (syntax error, throw during evaluation)?
+        → load error { source, message } — message is stack-free; scan continues
+      default export fails validateProvider()?
+        → load error; scan continues
+      id already loaded from an earlier entry in this same scan?
+        → load error naming the earlier path; this one is discarded; scan continues
+      otherwise → providers.push({ provider, path: source })
+  ↓
+  return { providers, errors }
+  ↓
+nextErrors = [...pluginResult.errors]
+For each loaded plugin provider:
+  id already in nextRegistry (a built-in)?
+    YES → nextErrors.push({ source: path, message: "clashes with a built-in…" }) — built-in keeps the id
+    NO  → nextRegistry.set(id, { provider, source: 'plugin', path })
+  ↓
+registry = nextRegistry; errors = nextErrors   ← replaces any previous call's result wholesale
+```
+
+**Consumers, read-only after startup:** `getProvider(id)` (used by the allocator, Flow T below, to dispatch an allocation) and `listProviders()`/`listProviderLoadErrors()` (used by the GUI's `GET /api/error-codes/providers` route, a later WP, to render the provider selector and any load-error list).
+
+**Key invariants:**
+- A broken plugin never halts the scan or blocks server startup — it is recorded in `errors` and every other entry still loads.
+- A built-in `id` always wins over a plugin declaring the same `id`; the clash is recorded as a load error, not silently dropped.
+- Calling `initProviderRegistry` again (the MCP server and the GUI server each call it once, independently, but a test may call it repeatedly) replaces the whole registry and error list, so no stale or duplicate entry from a previous call survives.
+
+---
+
+## Flow T: Error-Code Allocation — Provider Dispatch, Retry & Fallback
+
+**Entry point:** `allocateErrorCode(input, deps)` (`mcp-server/src/error-codes/allocator.ts`), called by the `ledger_generate_error_code` MCP tool (a later WP). This flow is the policy pipeline that sequences Flow R's config/repository/temporary-code primitives with Flow S's provider registry and a provider's own `allocate` hook — see "Policy Lives in the Allocator, Not in Providers" (`constraints.md`) for why every retry/fallback/redaction decision below lives here and nowhere in a provider.
+
+```
+allocateErrorCode({ cwd_path, context, temporary? }, deps)
+  ↓
+config = deps.loadConfig()
+repository = cwd_path !== null ? deps.resolveRepositoryInfo(cwd_path) : null
+  ↓
+temporary === true?
+  YES → deps.temporaryCodes.issue(config.temporary_prefix, { fallback_reason: 'requested', provider: null, ... })
+        → return ErrorCodeResult { temporary: true, fallback_reason: 'requested', provider: null, ... }
+  ↓ NO
+provider = deps.getProvider(config.active_provider)
+  undefined? → fall back: misconfigured, detail "provider '{id}' is not installed or failed to load"
+  ↓
+storedSettings = config.providers[provider.id] ?? {}
+parsed = buildSettingsSchema(provider.settings).safeParse(storedSettings)
+  fails? → fall back: misconfigured, detail "settings invalid: {invalid key names only, never values}"
+  ↓
+secrets = collectSecrets(provider.settings, parsed.data)
+ctx = { settings: parsed.data, signal: AbortSignal.timeout(config.timeout_ms),
+        data_dir: resolveErrorCodesDir() + '/data/' + provider.id, log: createRedactingLogger(provider.id, secrets) }
+  ↓
+outcome = provider.allocate(request, ctx)
+  throws?  → treated as { reason: 'failed', ambiguous: true }
+  aborts?  → treated as { reason: 'unavailable', ambiguous: true }
+  ↓
+validateOutcome(outcome):
+  ok && value is not a positive safe integer → { reason: 'invalid_response', ambiguous: false }
+  !ok && reason not one of the six FailureReason values → normalised to 'failed'
+  ↓
+ok?
+  YES → return ErrorCodeResult { temporary: false, code: String(value), provider: provider.id, ... }
+  ↓ NO
+reason === 'throttled' && !ambiguous?
+  YES → waitMs = min(retry_after_ms ?? config.retry.default_wait_ms, config.retry.max_wait_ms)
+        start = deps.now(); deps.sleep(waitMs); waited_ms = deps.now() - start
+        retry: outcome2 = provider.allocate(request, ctx) → validateOutcome(outcome2)
+        ok?  → return ErrorCodeResult { temporary: false, code, provider: provider.id, waited_ms, ... }
+        !ok? → fall back with outcome2's own reason/detail, carrying waited_ms
+  ↓ NO (every other failing reason, or an ambiguous throttled — never retried)
+fall back: deps.temporaryCodes.issue(config.temporary_prefix, { fallback_reason: reason, detail: redact(detail, secrets), ... })
+  ↓
+return ErrorCodeResult { temporary: true, fallback_reason: reason, detail, repository, first_component_code: code + '01', message, instruction, warning? }   ← warning copied from the issue() result (recovered temporary-code log)
+```
+
+**Key invariants:**
+- At most one retry ever happens, and only for a non-ambiguous `throttled` outcome — a second `throttled`, or any ambiguous failure on the first attempt, goes straight to the temporary-code fallback.
+- `secrets` is computed once per call (after settings validation succeeds) and reused for both the provider's `ctx.log` and the final `redact()` pass on `detail` — a secret the provider echoes back in a failure's `detail`, or logs itself, is redacted the same way either path reaches the caller.
+- `provider.allocate` is never called at all for a `temporary: true` request, a missing provider, or settings that fail validation — the fallback happens before any provider code runs.
+- `deps.now()` only measures the actual elapsed time around the one retry `sleep()` for the reported `waited_ms` — it is never consulted to decide whether to retry.
+- The only way this function rejects (rather than returning a temporary-code `ErrorCodeResult`) is a failure inside `deps.temporaryCodes.issue` itself (the temporary-code counter exhausted, an unreadable log, a lock timeout), which the calling MCP tool turns into an MCP error. A *corrupt but readable* log does not reject: it is recovered and reported through `ErrorCodeResult.warning`. A corrupt `file`-provider counter file is a provider `failed` outcome, so it takes the ordinary fallback path with the counter-file detail.
+- Plugins are picked up only at the next call to `initProviderRegistry` — normally, that means only at the next process restart. There is no file watcher and no hot-reload endpoint.
+
 ```
 _SOURCE: GUI-layer data flows (server startup, request lifecycle, polling, DOM patching, orchestrator queue, run log streaming)_
 # GUI-layer data flows (server startup, request lifecycle, polling, DOM patching, orchestrator queue, run log streaming)
@@ -2199,6 +2443,10 @@ main()
   ├── startConfigWatcher(configPath) → fs.watch for external changes
   ├── startAutoArchiveTimer() → periodic project archival
   ├── captureWorkspaceVersions() → snapshot boot versions (for stale detection)
+  ├── initProviderRegistry({ pluginDir: resolveErrorCodePluginDir() })
+  │     → built-in + plugin error-code providers; load errors logged, startup continues
+  │     → mirrors the same call at MCP server startup (src/index.ts), so both
+  │       processes' registries reflect the same built-in and plugin set
   └── createServer(handleRequest).listen(port)
         → Log "MCP GUI server running at http://localhost:{port}"
 ```
@@ -2226,12 +2474,14 @@ Incoming HTTP Request
           │   ├── Section A — body-parsing routes (PUT, PATCH, POST)
           │   ├── Section B — keyword-specific body-free routes (noBody:true; must precede §C)
           │   └── Section C — catch-all body-free routes (noBody:true)
+          ├── route.guards (when present) run in array order — each may throw ApiError to reject
+          │     e.g. the error-code routes' requireLoopbackRequest / requireJsonContentType (constraints.md §7)
           ├── readJsonBody(req) — enforce 1 MiB limit (skipped when noBody:true)
           ├── route.handler(body, groups?, query?) → result
           └── sendJson(res, statusCode ?? 200, result) | writeHead(204) + res.end()
           No match → 404 JSON error
 
-Error handling (any path):
+Error handling (any path, including a guard's throw):
   ApiError           → sendError(res, statusFromCode, code, message)
   PayloadTooLargeError → sendError(res, 413, ...)
   Unhandled          → stderr log + sendError(res, 500, 'INTERNAL_ERROR', ...)
@@ -2658,6 +2908,98 @@ Frontend on success:
 - Tab-switch cleanup runs **unconditionally** (not inside the `if (configDirty[configActiveTab])` guard) because the Stores tab has no pending state to lose.
 - `reloadStoreContext()` calls `setStoreContext()` with `skipDirCreate: true`. If a store path is temporarily unavailable (unmounted drive, offline NFS), the reload succeeds and the server continues in degraded mode — it does not throw a 500 that would leave the in-memory context stale.
 - `handleRemoveStore` uses `loadStoresConfig()` after `saveStoresConfig()` to rebuild the enriched list from the updated file, not from the stale pre-mutation snapshot.
+
+---
+
+## 14. Error-Code Provider Config & Test Flow
+
+The GUI's Error Codes settings tab (`views/config-error-codes.js`) is the frontend consumer of these routes. All five routes are guarded by `requireLoopbackRequest`; `PUT`/`POST` additionally by `requireJsonContentType` (constraints.md §7, "Request-Level Guards").
+
+```
+GET /api/error-codes/config
+  └── handleGetErrorCodeConfig (gui/api-error-codes.ts)
+      └── readErrorCodeConfig() (src/error-codes/config-store.ts) → { config, warning? }
+            — the GUI-facing read path, distinct from loadErrorCodeConfig() used by PUT/POST
+            below: a salvaged/corrupt/unreadable config.json surfaces its warning here
+            instead of only to stderr. warning names field paths only (salvaged) or a
+            fixed classification reason (corrupt/unreadable) — never a stored value or
+            the raw JSON-parser message.
+  └── Response: ErrorCodeConfigResponse — warning present only when config.json needed
+        salvage or could not be used as stored; absent for a missing or valid file
+
+PUT /api/error-codes/config  { provider_id, settings, clear_secrets? }
+  └── handleUpdateErrorCodeConfig (gui/api-error-codes.ts)
+      ├── PutErrorCodeConfigBodySchema — temporary_prefix must match TemporaryPrefixSchema (1–6 digits, no leading zero), else 400, nothing written
+      ├── getProvider(provider_id) — must be currently registered, else 400
+      ├── loadErrorCodeConfig() → current config
+      ├── mergeSettingsUpdate(provider.settings, stored, settings, clear_secrets)
+      │     ├── non-secret field: incoming value applied when the key is present
+      │     ├── secret field, incoming absent/empty: keeps the stored value
+      │     └── secret field, key in clear_secrets: cleared to ''
+      ├── buildSettingsSchema(provider.settings).safeParse(merged) — invalid → 400, nothing written
+      └── updateErrorCodeConfig(mutator) — read-modify-write under withLock(); a provider_id
+            not targeted by this call is left byte-for-byte unchanged, which is how an
+            uninstalled provider's settings survive the round trip
+  └── Response: ErrorCodeConfigResponse — every secret masked to { set: boolean };
+        only currently-registered providers' blocks appear
+
+POST /api/error-codes/test  { provider_id, settings? }
+  └── handleTestErrorCodeProvider (gui/api-error-codes.ts)
+      ├── getProvider(provider_id) — must be currently registered, else 400
+      ├── loadErrorCodeConfig() → stored settings for provider_id
+      ├── mergeSettingsForTest(provider.settings, stored, settings)
+      │     ├── every non-secret field unchanged → stored secrets merged in (secrets_merged: true)
+      │     └── any non-secret field changed     → incoming settings tested as-is (secrets_merged: false)
+      │           — a stored secret never reaches a provider whose destination just changed
+      ├── buildSettingsSchema(provider.settings).safeParse(merged.settings) — invalid → 400
+      ├── collectSecrets(provider.settings, validated) → redact() applied to every text field returned
+      └── provider.test(ctx) ?? provider.peek(request, ctx) ?? { supported: false, message: "…offers no connection test" }
+            — allocate() is never called by this route
+  └── Response: { supported, secrets_merged, ok?, reason?, detail?, value?, message? }
+```
+
+**Tab-side guards (`views/config-error-codes.js`).** Every async callback of the tab — the lazy load (`ecRenderTab`), Save (`ecHandleSave`) and Test connection (`ecHandleTestClick`) — captures `var visit = ecVisit` before its request and returns early when `visit !== ecVisit`. `ecResetState()` (called by `config.js` on every exit from the tab and on page re-render) increments `ecVisit`, so a response that arrives after the user left can neither replace the shared `#config-tab-content` with the Error Codes form nor repopulate the state that was just cleared. A late Save still clears `ecSaveInFlight` first (it spans visits); a late Test leaves `ecTestInFlight` alone. The lazy load's temporary-codes fetch has its own `.catch`, so a corrupt or unreadable log shows a banner in its card instead of blocking the whole tab. The client validates the temporary prefix against `EC_TEMPORARY_PREFIX_PATTERN` before sending; the server's schema stays authoritative. `ecConfigWarning` (the config response's `warning`, distinct from `ecTemporaryWarning`) is set from the lazy load's `GET` response and re-set from `ecHandleSave`'s `PUT` response (which is always `undefined`, since a successful save just wrote a fully-validated file — so a successful save always clears a prior warning); `ecResetState()` clears it on tab exit along with every other `ec*` field.
+
+**Key invariants:**
+- The fail-closed merge (`mergeSettingsForTest`) is the one place the server combines a stored secret with client-supplied settings — see the rationale in `src/error-codes/settings-schema.ts`'s docblock and in the plan that introduced it (WP-011's "Rejected Approaches").
+- `GET /api/error-codes/providers` and `GET /api/error-codes/config` never execute provider code — they only read the registry (`listProviders()`, `listProviderLoadErrors()`) and the config file.
+- Both the MCP server (`src/index.ts`) and the GUI server (`gui/server.ts`) call `initProviderRegistry()` independently at their own startup against the same `resolveErrorCodePluginDir()` — the GUI's providers list reflects exactly the same built-in/plugin set the MCP server's `ledger_generate_error_code` tool allocates through.
+
+## 15. Configuration Tab-Switch Flow (`CONFIG_TABS`)
+
+The tab-bar click handler in `views/config.js` routes every tab switch through the `CONFIG_TABS` descriptor array (`{ key, label, render, leave, reset }` per tab — see constraints.md §25 "Config Tab Modules") rather than branching on the tab key itself:
+
+```
+User clicks a tab button
+  └── tab-bar click handler (config.js)
+        ├── configDirty[configActiveTab] === true?
+        │     └── confirm() — unsaved-changes guard
+        │           ├── Cancel  → stay on current tab, no further action
+        │           └── OK      → discarded = true
+        ├── leavingTab = configFindTab(configActiveTab)
+        ├── leavingTab.leave(discarded)              ← runs unconditionally, discarded defaults to false
+        │     ├── always-reset tabs (Stores, Error Codes):
+        │     │     leave === reset → unconditional reset, regardless of discarded
+        │     │     (increments csVisit / ecVisit, clears module state)
+        │     └── reset-only-on-discard tabs (Persona Models, Model Registry):
+        │           always increments pmVisit / mrVisit (invalidating any in-flight
+        │           request's stale check); resets module state only when discarded
+        │           is true — render's arguments are not refreshed after a save, so
+        │           resetting unconditionally would re-initialise from stale data
+        ├── configActiveTab = <clicked tab key>
+        └── renderConfigTabContent() → configFindTab(configActiveTab).render(...)
+              ← dispatches purely off CONFIG_TABS; no per-tab branch in config.js itself
+
+On full page load / reload:
+renderConfigPage(app, config, models, personas, assignments, stores)
+  ├── resets every configDirty key to false
+  └── CONFIG_TABS.forEach(tab => tab.reset())    ← every tab reset unconditionally,
+        since fresh server data is always about to replace whatever state existed
+```
+
+**Why a visit-spanning flag is not reset by `leave`/`reset`:** `pmIsBuilding` (Persona Models' rebuild-in-progress flag) and `ecSaveInFlight`/`ecTestInFlight` (Error Codes' request-in-flight flags) intentionally survive a tab switch, so a rebuild or save started on one visit still completes and updates its own flag correctly if the user returns. Each is cleared by its own async callback — never by `leave`/`reset` — before that callback's own visit-token stale check runs, so the flag never gets stuck `true` even when the response that would normally clear it arrives after the tab was left.
+
+**Key invariant:** adding a sixth Configuration tab requires only a new `CONFIG_TABS` descriptor — `renderConfigTabContent()` and the tab-bar click handler both dispatch purely off the array via `configFindTab()`, with no separate branch to update.
 
 
 ```

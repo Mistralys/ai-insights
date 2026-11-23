@@ -11,12 +11,30 @@ _SOURCE: Test suite directory structure_
 ```
 └── mcp-server/
     └── tests/
+        └── error-codes/
+            ├── allocator.test.ts
+            ├── config-store.test.ts
+            ├── errorcode-incrementor-provider.test.ts
+            ├── file-provider.test.ts
+            ├── fixtures/
+            │   ├── concurrent-allocation-worker.ts
+            │   ├── run-workers.ts
+            ├── no-private-config.test.ts
+            ├── plugin-loader.test.ts
+            ├── project-info.test.ts
+            ├── provider-contract.ts
+            ├── provider-registry.test.ts
+            ├── provider-validation.test.ts
+            ├── redact.test.ts
+            ├── settings-schema.test.ts
+            ├── temporary-codes.test.ts
         └── gui-server.test.ts
         └── gui/
             ├── README.md
             ├── api-chunk-text.test.ts
             ├── api-client.test.ts
             ├── api-dialogue-parse.test.ts
+            ├── api-error-codes.test.ts
             ├── api-knowledge.test.ts
             ├── api-models.test.ts
             ├── api-orchestrator.test.ts
@@ -33,10 +51,13 @@ _SOURCE: Test suite directory structure_
             ├── chunk-renderer-text.test.ts
             ├── chunk-renderer.test.ts
             ├── client-rendering.test.ts
+            ├── config-error-codes-view.test.ts
             ├── config-helpers.test.ts
+            ├── config-tabs.test.ts
             ├── config.test.ts
             ├── dialogue-qa.test.ts
             ├── dispatch-route.test.ts
+            ├── errors.test.ts
             ├── handoff-config-integration.test.ts
             ├── helpers/
             │   ├── api-stubs.ts
@@ -72,6 +93,7 @@ _SOURCE: Test suite directory structure_
             │   ├── get-queue.test.ts
             │   ├── resolve-progress.test.ts
             │   ├── validate-entry.test.ts
+            ├── route-guards.test.ts
             ├── route-structured-format.test.ts
             ├── route-table.test.ts
             ├── router-utils.test.ts
@@ -105,10 +127,11 @@ _SOURCE: Test suite directory structure_
             ├── store-config.test.ts
             ├── validators.test.ts
             ├── work-package-schema.test.ts
-        └── startup/
-            ├── tool-log-sync.test.ts
         └── storage/
+            ├── atomic-writer.test.ts
             ├── cross-device-portability.test.ts
+            ├── file-lock.test.ts
+            ├── json-state-file.test.ts
             ├── knowledge-store-exclusion.test.ts
             ├── knowledge-store.test.ts
             ├── ledger-store.test.ts
@@ -130,6 +153,7 @@ _SOURCE: Test suite directory structure_
             ├── claim-guard.test.ts
             ├── complete-pipeline-guards.test.ts
             ├── enrichment-resilience.test.ts
+            ├── error-codes.test.ts
             ├── knowledge-help.test.ts
             ├── knowledge-multi-store.test.ts
             ├── knowledge.test.ts
@@ -152,6 +176,7 @@ _SOURCE: Test suite directory structure_
             ├── standalone-import.test.ts
             ├── start-pipeline-guards.test.ts
             ├── synthesis-terminal.test.ts
+            ├── tool-registry.test.ts
             ├── version-freshness.test.ts
             ├── work-package.test.ts
             ├── workflow-batch-actions.test.ts
@@ -163,6 +188,7 @@ _SOURCE: Test suite directory structure_
             └── derive-repo-name.test.ts
             └── if-defined.test.ts
             └── ledger-root.test.ts
+            └── node-errors.test.ts
             └── path-validator.test.ts
             └── pipeline-maps.test.ts
             └── progress.test.ts

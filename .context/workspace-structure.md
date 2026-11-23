@@ -24,8 +24,6 @@ _SOURCE: Top-level directory tree_
     │   ├── deferred-topics.md
     │   ├── implementation-history/
     │   │   ├── README.md
-    │   ├── insights/
-    │   │   ├── 2026-10-17-windows-agent-picker-input.jsonl
     │   ├── project-manifest/
     │   │   ├── README.md
     │   │   ├── constraints.md
@@ -36,6 +34,8 @@ _SOURCE: Top-level directory tree_
     │   │   ├── live-workspace.md
     │   │   ├── plan-folders.md
     │   │   ├── root-tooling.md
+    │   ├── projects/
+    │   │   ├── recipe-database-management.md
     │   ├── references/
     │   │   ├── README.md
     │   │   ├── claude-code-subagent-dispatch.md
@@ -96,6 +96,7 @@ _SOURCE: Top-level directory tree_
     │   └── agents-overview.md
     │   └── development.md
     │   └── gitignore-template.txt
+    │   └── ide-runtime-settings.md
     │   └── insights-sidecar-reference.md
     │   └── menu-guide.md
     │   └── multi-store-guide.md
@@ -120,7 +121,26 @@ _SOURCE: Top-level directory tree_
     ├── AGENTS.md
     ├── README.md
     ├── changelog.md
+    ├── coverage/
+    │   ├── base.css
+    │   ├── block-navigation.js
+    │   ├── clover.xml
+    │   ├── coverage-final.json
+    │   ├── favicon.png
+    │   ├── gui/
+    │   │   ├── api.ts.html
+    │   │   ├── chunk-renderer.ts.html
+    │   │   ├── index.html
+    │   │   ├── server.ts.html
+    │   ├── index.html
+    │   ├── prettify.css
+    │   ├── prettify.js
+    │   ├── sort-arrow-sprite.png
+    │   ├── sorter.js
+    ├── docs/
+    │   ├── error-code-providers.md
     ├── gui/
+    │   ├── api-error-codes.ts
     │   ├── api-knowledge.ts
     │   ├── api-models.ts
     │   ├── api-repos.ts
@@ -141,6 +161,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── theme-init.js
     │   │   ├── theme.js
     │   │   ├── utils.js
+    │   ├── route-guards.ts
     │   ├── server.ts
     ├── module-context.yaml
     ├── package-lock.json
@@ -150,6 +171,17 @@ _SOURCE: Top-level directory tree_
     │   ├── rename-repository.js
     │   ├── sync-version.js
     ├── src/
+    │   ├── error-codes/
+    │   │   ├── allocator.ts
+    │   │   ├── config-store.ts
+    │   │   ├── plugin-loader.ts
+    │   │   ├── project-info.ts
+    │   │   ├── provider-api.ts
+    │   │   ├── provider-registry.ts
+    │   │   ├── provider-validation.ts
+    │   │   ├── redact.ts
+    │   │   ├── settings-schema.ts
+    │   │   ├── temporary-codes.ts
     │   ├── gui/
     │   │   ├── auto-archive.ts
     │   │   ├── config.ts
@@ -171,6 +203,7 @@ _SOURCE: Top-level directory tree_
     │   ├── storage/
     │   │   ├── atomic-writer.ts
     │   │   ├── file-lock.ts
+    │   │   ├── json-state-file.ts
     │   │   ├── knowledge-store.ts
     │   │   ├── ledger-store.ts
     │   │   ├── migrate-namespaced.ts
@@ -181,6 +214,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── store-router.ts
     │   ├── tools/
     │   │   ├── begin-work.ts
+    │   │   ├── error-codes.ts
     │   │   ├── help-content.ts
     │   │   ├── help.ts
     │   │   ├── knowledge.ts
@@ -188,6 +222,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── ping.ts
     │   │   ├── pipeline.ts
     │   │   ├── project-lifecycle.ts
+    │   │   ├── registry.ts
     │   │   ├── repository-context.ts
     │   │   ├── standalone-import.ts
     │   │   ├── work-package.ts
@@ -201,6 +236,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── constants.ts
     │   │   └── if-defined.ts
     │   │   └── ledger-root.ts
+    │   │   └── node-errors.ts
     │   │   └── path-validator.ts
     │   │   └── pipeline-maps.ts
     │   │   └── project-reset.ts
@@ -219,12 +255,27 @@ _SOURCE: Top-level directory tree_
     │   ├── ledger/
     │   │   └── gui-config.json
     ├── tests/
+    │   ├── error-codes/
+    │   │   ├── allocator.test.ts
+    │   │   ├── config-store.test.ts
+    │   │   ├── errorcode-incrementor-provider.test.ts
+    │   │   ├── file-provider.test.ts
+    │   │   ├── no-private-config.test.ts
+    │   │   ├── plugin-loader.test.ts
+    │   │   ├── project-info.test.ts
+    │   │   ├── provider-contract.ts
+    │   │   ├── provider-registry.test.ts
+    │   │   ├── provider-validation.test.ts
+    │   │   ├── redact.test.ts
+    │   │   ├── settings-schema.test.ts
+    │   │   ├── temporary-codes.test.ts
     │   ├── gui-server.test.ts
     │   ├── gui/
     │   │   ├── README.md
     │   │   ├── api-chunk-text.test.ts
     │   │   ├── api-client.test.ts
     │   │   ├── api-dialogue-parse.test.ts
+    │   │   ├── api-error-codes.test.ts
     │   │   ├── api-knowledge.test.ts
     │   │   ├── api-models.test.ts
     │   │   ├── api-orchestrator.test.ts
@@ -241,10 +292,13 @@ _SOURCE: Top-level directory tree_
     │   │   ├── chunk-renderer-text.test.ts
     │   │   ├── chunk-renderer.test.ts
     │   │   ├── client-rendering.test.ts
+    │   │   ├── config-error-codes-view.test.ts
     │   │   ├── config-helpers.test.ts
+    │   │   ├── config-tabs.test.ts
     │   │   ├── config.test.ts
     │   │   ├── dialogue-qa.test.ts
     │   │   ├── dispatch-route.test.ts
+    │   │   ├── errors.test.ts
     │   │   ├── handoff-config-integration.test.ts
     │   │   ├── insights-knowledge-links.test.ts
     │   │   ├── knowledge-api-multi-store.test.ts
@@ -269,6 +323,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── project-list.test.ts
     │   │   ├── queue-ledger-status.test.ts
     │   │   ├── queue-multi-store.test.ts
+    │   │   ├── route-guards.test.ts
     │   │   ├── route-structured-format.test.ts
     │   │   ├── route-table.test.ts
     │   │   ├── router-utils.test.ts
@@ -302,10 +357,11 @@ _SOURCE: Top-level directory tree_
     │   │   ├── store-config.test.ts
     │   │   ├── validators.test.ts
     │   │   ├── work-package-schema.test.ts
-    │   ├── startup/
-    │   │   ├── tool-log-sync.test.ts
     │   ├── storage/
+    │   │   ├── atomic-writer.test.ts
     │   │   ├── cross-device-portability.test.ts
+    │   │   ├── file-lock.test.ts
+    │   │   ├── json-state-file.test.ts
     │   │   ├── knowledge-store-exclusion.test.ts
     │   │   ├── knowledge-store.test.ts
     │   │   ├── ledger-store.test.ts
@@ -327,6 +383,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── claim-guard.test.ts
     │   │   ├── complete-pipeline-guards.test.ts
     │   │   ├── enrichment-resilience.test.ts
+    │   │   ├── error-codes.test.ts
     │   │   ├── knowledge-help.test.ts
     │   │   ├── knowledge-multi-store.test.ts
     │   │   ├── knowledge.test.ts
@@ -349,6 +406,7 @@ _SOURCE: Top-level directory tree_
     │   │   ├── standalone-import.test.ts
     │   │   ├── start-pipeline-guards.test.ts
     │   │   ├── synthesis-terminal.test.ts
+    │   │   ├── tool-registry.test.ts
     │   │   ├── version-freshness.test.ts
     │   │   ├── work-package.test.ts
     │   │   ├── workflow-batch-actions.test.ts
@@ -360,6 +418,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── derive-repo-name.test.ts
     │   │   └── if-defined.test.ts
     │   │   └── ledger-root.test.ts
+    │   │   └── node-errors.test.ts
     │   │   └── path-validator.test.ts
     │   │   └── pipeline-maps.test.ts
     │   │   └── progress.test.ts
@@ -576,6 +635,7 @@ _SOURCE: Top-level directory tree_
     │   │   └── developer-dual-role.md
     │   │   └── developer-philosophy.md
     │   │   └── documentation-ownership.md
+    │   │   └── error-code-generation.md
     │   │   └── incident-logging.md
     │   │   └── insight-capture.md
     │   │   └── insight-compilation.md
@@ -691,6 +751,7 @@ _SOURCE: Top-level directory tree_
     ├── cli.js
     ├── extract-changelog-entry.js
     ├── extract-dialogue.js
+    ├── fetch-pr-review-comments.js
     ├── generate-agents-overview.js
     ├── generate-persona-audit.js
     ├── import-standalone.js
@@ -700,6 +761,7 @@ _SOURCE: Top-level directory tree_
     ├── launch-agent.js
     ├── lib/
     │   ├── agent-slug-validation.js
+    │   ├── agents-overview.js
     │   ├── build-checks.js
     │   ├── changelog-size-check.js
     │   ├── claude-cli.js
@@ -715,6 +777,7 @@ _SOURCE: Top-level directory tree_
     │   ├── original-cwd.js
     │   ├── persona-model-resolution.js
     │   ├── philosophy-tone.js
+    │   ├── pr-review-comments.js
     │   ├── stdin-handoff.js
     │   ├── store-commands.js
     │   ├── subagent-reference-validation.js
@@ -737,6 +800,7 @@ _SOURCE: Top-level directory tree_
     ├── tests/
     │   ├── README.md
     │   ├── agent-slug-validation.test.js
+    │   ├── agents-overview.test.js
     │   ├── backfill-duration.test.js
     │   ├── build-checks.test.js
     │   ├── build-personas-model-resolution.test.js
@@ -760,6 +824,7 @@ _SOURCE: Top-level directory tree_
     │   ├── npm-link.test.js
     │   ├── original-cwd.test.js
     │   ├── philosophy-tone.test.js
+    │   ├── pr-review-comments.test.js
     │   ├── publish-locations.test.js
     │   ├── publish-skills.test.js
     │   ├── stdin-handoff.test.js
@@ -776,8 +841,10 @@ _SOURCE: Top-level directory tree_
     ├── meta/
     │   ├── _shared.yaml
     │   ├── insights-audit-persona.yaml
+    │   ├── insights-pr-review.yaml
     ├── src/
     │   └── insights-audit-persona.md
+    │   └── insights-pr-review.md
 └── vitest.config.ts
 
 ```

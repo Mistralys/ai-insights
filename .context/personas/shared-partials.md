@@ -17,6 +17,7 @@ _SOURCE: Cross-suite Markdown partials (operational protocols, output formats, i
             └── developer-dual-role.md
             └── developer-philosophy.md
             └── documentation-ownership.md
+            └── error-code-generation.md
             └── incident-logging.md
             └── insight-capture.md
             └── insight-compilation.md
@@ -146,6 +147,18 @@ Read what the agent returns before you continue. A delegation is reviewed, never
 - Never dispatch an owner whose turn in the caller's plan is still to come, or whose stage the plan skipped. Report the finding for that document to the caller instead.
 - Never send a dispatch without the evidence behind the finding. The receiving agent acts on a brief as established fact.
 {{/if}}
+
+```
+###  Path: `/personas/shared/partials/error-code-generation.md`
+
+```md
+Request one error-code base per new class or module that throws coded exceptions — never one per exception. Component codes within that class/module are `{base}01`, `{base}02`, … in the order they are introduced.
+
+- Call `ledger_generate_error_code`, always passing `cwd_path` (the repository root) and a `context` (e.g. the class or namespace name).
+- When the result's `temporary` is `true`, add a `TEMPORARY ERROR CODE` comment marker at the call site and report it {{temporary_code_report_location}}.
+- When the tool is unavailable altogether, use the placeholder base `777000000` with the same `TEMPORARY ERROR CODE` marker.
+- Replace a temporary code later: call `ledger_list_temporary_error_codes` to find it, then swap the placeholder for a real base once the provider is available.
+- Never choose or configure an error-code provider — that is the user's own setup in the GUI's Error Codes tab.
 
 ```
 ###  Path: `/personas/shared/partials/incident-logging.md`
@@ -771,12 +784,18 @@ A sub-agent with its own persona already knows how to do its work: it has its ow
 ```md
 ## Waiting for a Sub-Agent
 
-In an interactive session (the terminal, VS Code or the desktop app), a dispatched sub-agent always runs in the background, and the call returns a launch acknowledgement at once. The `<task-notification>` arrives once the agent's whole task has ended, including every agent it dispatched in turn. It is the message the next step waits for; Claude Code's docs call it the completion notification. Under Claude Code's auto permission mode, a hand-back carrying the agent's report can arrive first, often while agents it dispatched are still working. Each of these messages starts a new turn of your session. Files the agent writes show how far it got, not that it finished.
+In an interactive session (the terminal, VS Code or the desktop app), a dispatched sub-agent always runs in the background, and the call returns a launch acknowledgement at once. You wait by ending your turn. The sub-agent's report then arrives in one of two messages, and that message starts your next turn.
+
+- **The hand-back.** Under Claude Code's auto permission mode, the sub-agent delivers its final report through its `SubagentHandback` tool. A `<task-notification>` follows a few seconds later, but Claude Code only records it in the transcript. It starts no turn, and it says the report "was delivered to you as a message".
+- **The `<task-notification>`.** Outside auto mode, the report arrives inside this notification, which Claude Code's docs call the completion notification. It also starts a turn when it follows a hand-back much later. That happens when the sub-agent handed work on to another agent: the hand-back arrives while that agent is still running, and the notification arrives once it has finished.
+
+Files the agent writes show how far it got, not that it finished.
 
 ### Constraints
 
-- **Never poll for a sub-agent.** No `sleep`, no `until` loop, no Monitor, no watching for files it should create. End your turn; the notification starts the next one. Ending the turn is not ending the task: write a one-line status, not a report, and continue the workflow when the notification arrives. When Claude Code blocks `sleep` and suggests an until-loop, that advice is for shell commands, not for agents.
-- **Never treat a hand-back as the end of the task.** Check expected output, and start a dependent step, only after the task notification.
+- **Never poll for a sub-agent.** No `sleep`, no `until` loop, no Monitor, no watching for files it should create. End your turn; the next message starts the next one. Ending the turn is not ending the task: write a one-line status, not a report, and continue the workflow when the message arrives. When Claude Code blocks `sleep` and suggests an until-loop, that advice is for shell commands, not for agents.
+- **Continue on a hand-back that carries the final report.** Check the sub-agent's expected output and start the next step in the same turn. Never end your turn to wait for the task notification that follows it: that notification starts no turn, and the workflow stalls until the user types.
+- **Wait for the task notification only when work is still running.** That is the case when the report says the sub-agent handed off to another agent or dispatched one that has not finished, or when the calling step says the agent's task outlasts its report. End your turn; the notification starts the next one when the last agent is done.
 - **Pass only `subagent_type`, `description` and `prompt`.** `run_in_background` changes nothing. A `name` starts the agent as a teammate outside your task. It is told to report through `SendMessage`, a tool it does not have; its result never reaches you, and no notification marks its end.
 - **Re-issue a dispatch that returned an error once.** It started nothing. If it fails again, follow the calling step's failure handling, or stop and report.
 

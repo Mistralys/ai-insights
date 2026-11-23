@@ -20,6 +20,7 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
     └── cli.js
     └── extract-changelog-entry.js
     └── extract-dialogue.js
+    └── fetch-pr-review-comments.js
     └── generate-agents-overview.js
     └── generate-persona-audit.js
     └── import-standalone.js
@@ -29,6 +30,7 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
     └── launch-agent.js
     └── lib/
         ├── agent-slug-validation.js
+        ├── agents-overview.js
         ├── build-checks.js
         ├── changelog-size-check.js
         ├── claude-cli.js
@@ -44,6 +46,7 @@ _SOURCE: Workspace scripts (CLI, persona sync, build, bundling, validation)_
         ├── original-cwd.js
         ├── persona-model-resolution.js
         ├── philosophy-tone.js
+        ├── pr-review-comments.js
         ├── stdin-handoff.js
         ├── store-commands.js
         ├── subagent-reference-validation.js
@@ -451,7 +454,7 @@ main().catch((err) => {
  *
  * Every wrapper-side check (agent-slug cross-references, insight_agent
  * pairing, rendered sub-agent references, philosophy tone, changelog entry
- * size) runs unconditionally, through the single `runBuildChecks()`
+ * size, a stale docs/references/agents-overview.md) runs unconditionally, through the single `runBuildChecks()`
  * descriptor list in `lib/build-checks.js` — a failing or crashing check
  * never hides a later one or the post-build steps. The process exit call
  * happens exactly once, at the end of the script, via `resolveExitCode()`,
@@ -464,6 +467,7 @@ import path from 'path';
 import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
 import { generateNameMapping, writeNameMapping } from './lib/name-mapping.js';
+import { checkAgentsOverview, writeAgentsOverview } from './lib/agents-overview.js';
 import { validateInsightFieldsInDirs } from './lib/insight-validation.js';
 import { validateSubagentReferences } from './lib/subagent-reference-validation.js';
 import { checkPhilosophyToneInDirs } from './lib/philosophy-tone.js';
@@ -553,6 +557,17 @@ if (!CHECK) {
   });
   writeNameMapping(outPath, entries);
   console.log(`Generated personas/name-mapping.json with ${entries.length} entries (${ledgerCount} ledger, ${nonLedgerCount} non-ledger).`);
+
+  // Post-build: regenerate docs/references/agents-overview.md (real builds only).
+  // ORDERING DEPENDENCY: the 'agents-overview' check descriptor below runs on
+  // every invocation and passes in a real build only because this step runs
+  // BEFORE runBuildChecks(). Do not move it below that call (a source-order
+  // test in scripts/tests/agents-overview.test.js guards this). The write skips
+  // a date-only change, so an unchanged overview is left untouched.
+  const { written } = writeAgentsOverview({ root: ROOT });
+  console.log(written
+    ? 'Regenerated docs/references/agents-overview.md.'
+    : 'docs/references/agents-overview.md already up to date — no update needed.');
 }
 
 // Hoist the library load above the descriptor list so both the agent-slug
@@ -645,6 +660,15 @@ const checks = [
       path.join(ROOT, 'personas', 'ledger-support', 'src', 'content'),
       path.join(ROOT, 'personas', 'shared', 'partials'),
     ], { stripComments: stripCommentsFn }),
+  },
+  {
+    id: 'agents-overview',
+    label: 'stale docs/references/agents-overview.md',
+    severity: 'error',
+    // Runs in every mode. In --check it fails on a stale overview (what CI
+    // runs); in a real build it verifies the post-step write above, which
+    // must therefore stay before runBuildChecks().
+    run: () => checkAgentsOverview({ root: ROOT }),
   },
   {
     id: 'changelog-size',
@@ -1716,8 +1740,6 @@ function cmdBuildMaintain(args) {
   const buildArgs = args.includes('--suite') ? args : ['--suite', 'all', ...args];
   const buildCode = runScript('node', [path.join(SCRIPTS_DIR, 'build-personas.js'), ...buildArgs], { cwd: WORKSPACE_ROOT });
   if (buildCode !== 0) process.exit(buildCode);
-  const overviewCode = runScript('node', [path.join(SCRIPTS_DIR, 'generate-agents-overview.js')], { cwd: WORKSPACE_ROOT });
-  if (overviewCode !== 0) process.exit(overviewCode);
   const rolesCode = runScript('node', [path.join(SCRIPTS_DIR, 'check-known-roles.js')], { cwd: WORKSPACE_ROOT });
   if (rolesCode !== 0) process.exit(rolesCode);
   cmdCtxGenerate(args);
@@ -3072,6 +3094,61 @@ function main() {
 main();
 
 ```
+###  Path: `/scripts/fetch-pr-review-comments.js`
+
+```js
+#!/usr/bin/env node
+
+/**
+ * scripts/fetch-pr-review-comments.js
+ *
+ * Fetches the review comments of a GitHub pull request (by default only the
+ * unresolved, non-outdated Copilot threads) and prints them as JSON, so a PR
+ * review skill can read them and fix the issues locally.
+ *
+ * Usage:
+ *   node scripts/fetch-pr-review-comments.js                      PR of the current branch
+ *   node scripts/fetch-pr-review-comments.js --pr 123             Explicit PR
+ *   node scripts/fetch-pr-review-comments.js --repo ORG/REPO      Explicit repository
+ *   node scripts/fetch-pr-review-comments.js --author ".*"        All reviewers
+ *   node scripts/fetch-pr-review-comments.js --include-resolved --include-outdated
+ *   node scripts/fetch-pr-review-comments.js --help
+ *
+ * Run it from inside the repository under review; `gh` resolves the repo and
+ * PR from the current directory. Not registered in the CLI menu on purpose.
+ *
+ * Exit codes: 0 success (an empty array means nothing to fix), 1 failure.
+ * Requires the GitHub CLI (`gh`), authenticated. Logic lives in
+ * scripts/lib/pr-review-comments.js.
+ */
+
+import {
+  HELP,
+  parseArgs,
+  resolveTarget,
+  fetchReviewThreads,
+  selectThreads,
+} from './lib/pr-review-comments.js';
+
+try {
+  const opts = parseArgs(process.argv.slice(2));
+
+  if (opts.help) {
+    process.stdout.write(HELP);
+    process.exit(0);
+  }
+
+  const target = resolveTarget(opts);
+  const threads = fetchReviewThreads(target);
+  const selected = selectThreads(threads, opts);
+
+  process.stdout.write(`${JSON.stringify(selected, null, 2)}\n`);
+} catch (err) {
+  process.stderr.write(`fetch-pr-review-comments: ${err.message}\n`);
+  process.exit(1);
+}
+
+```
 ###  Path: `/scripts/generate-agents-overview.js`
 
 ```js
@@ -3080,245 +3157,37 @@ main();
  * scripts/generate-agents-overview.js
  *
  * Generates docs/references/agents-overview.md from persona YAML metadata across all
- * three suites (ledger, standalone, ledger-support).
+ * three suites (ledger, standalone, ledger-support). Thin CLI over
+ * scripts/lib/agents-overview.js; `node scripts/build-personas.js` runs the same
+ * generation as a post-step and checks it on every invocation.
  *
  * Usage:
- *   node scripts/generate-agents-overview.js          — generate and write
+ *   node scripts/generate-agents-overview.js          — generate and write (skips a date-only change)
  *   node scripts/generate-agents-overview.js --check  — exit 0 if current, 1 if stale
  *   node scripts/generate-agents-overview.js --dry-run — alias for --check
  */
 
-import fs   from 'fs';
 import path from 'path';
-import {
-  parseYamlScalars,
-  extractYamlBlockScalar,
-  extractYamlText,
-  extractYamlSequence,
-} from './lib/yaml-utils.js';
+import { checkAgentsOverview, writeAgentsOverview } from './lib/agents-overview.js';
 
-const ROOT          = path.resolve(import.meta.dirname, '..');
-const OUTPUT_FILE   = path.join(ROOT, 'docs', 'references', 'agents-overview.md');
-const HEADER_FILE   = path.join(ROOT, 'scripts', 'templates', 'agents-overview-header.md');
-
-const LEDGER_META   = path.join(ROOT, 'personas', 'ledger',        'src', 'meta');
-const STANDALONE_META = path.join(ROOT, 'personas', 'standalone',  'src', 'meta');
-const SUPPORT_META  = path.join(ROOT, 'personas', 'ledger-support', 'src', 'meta');
-
+const ROOT    = path.resolve(import.meta.dirname, '..');
 const isCheck = process.argv.includes('--check') || process.argv.includes('--dry-run');
 
-// ─── Version helper ───────────────────────────────────────────────────────────
-
-/**
- * Extracts version from a `changelog: |` block scalar.
- */
-function resolveVersionFromChangelog(text) {
-  const content = extractYamlBlockScalar(text, 'changelog');
-  if (!content) return undefined;
-  for (const line of content.split(/\r?\n/)) {
-    const withDate = line.match(/^(\d+\.\d+\.\d+)\s*\(\d{4}-\d{2}-\d{2}\)\s*:/);
-    if (withDate) return withDate[1];
-    const withoutDate = line.match(/^(\d+\.\d+\.\d+)\s*:/);
-    if (withoutDate) return withoutDate[1];
-  }
-  return undefined;
-}
-
-// ─── Persona loading ──────────────────────────────────────────────────────────
-
-const LEDGER_SCALARS     = ['number', 'role', 'identity', 'description', 'inputs', 'outputs', 'notes'];
-const STANDALONE_SCALARS = ['slug', 'name', 'description', 'identity', 'use_when', 'notes'];
-
-/**
- * Parse one persona YAML file into a normalized persona object.
- * @param {string} filePath
- * @param {'ledger'|'standalone'|'support'} suite
- * @returns {object}
- */
-function loadPersona(filePath, suite) {
-  const text    = fs.readFileSync(filePath, 'utf8');
-  const fields  = suite === 'ledger' ? LEDGER_SCALARS : STANDALONE_SCALARS;
-  const scalars = parseYamlScalars(text, fields);
-
-  const version      = resolveVersionFromChangelog(text);
-  const key_behavior = extractYamlText(text, 'key_behavior');
-  const modes        = extractYamlText(text, 'modes');
-  const subagents    = extractYamlSequence(text, 'subagents');
-
-  return { ...scalars, version, key_behavior, modes, subagents, suite };
-}
-
-/**
- * Load all non-_shared.yaml personas from a meta directory.
- */
-function loadSuite(dir, suite) {
-  return fs
-    .readdirSync(dir)
-    .filter(f => f.endsWith('.yaml') && !f.startsWith('_'))
-    .sort()
-    .map(f => loadPersona(path.join(dir, f), suite));
-}
-
-// ─── Slug → name lookup ───────────────────────────────────────────────────────
-
-/**
- * Build a map of slug → display name from standalone + support personas so
- * subagent references can be rendered with human-readable names.
- */
-function buildSlugMap(standalone, support) {
-  const map = {};
-  for (const p of [...standalone, ...support]) {
-    const slug = p.slug || p.name?.toLowerCase().replace(/\s+/g, '-') || '';
-    if (slug) map[slug] = p.name || slug;
-  }
-  return map;
-}
-
-// ─── Name formatting ──────────────────────────────────────────────────────────
-
-/**
- * Normalize display names: "(Standalone)" → "— Standalone" to avoid
- * double-parentheses in headings like "### Developer (Standalone) (v1.4.0)".
- */
-function displayName(name) {
-  return name.replace(/\(Standalone\)/, '— Standalone');
-}
-
-// ─── Markdown rendering ───────────────────────────────────────────────────────
-
-function renderSubagents(slugs, slugMap) {
-  if (!slugs || slugs.length === 0) return '';
-  const names = slugs.map(s => slugMap[s] || s);
-  return `- **Sub-agents:** ${names.join(', ')}\n`;
-}
-
-function renderKeyBehavior(kb) {
-  if (!kb) return '';
-  const firstLine = kb.split(/\r?\n/).find(l => l.trim());
-  return firstLine ? `- **Key Behavior:** ${firstLine}\n` : '';
-}
-
-function renderModes(modes) {
-  if (!modes) return '';
-  const items = modes.split(/\r?\n/).filter(l => l.trim()).join(', ');
-  return items ? `- **Modes:** ${items}\n` : '';
-}
-
-/**
- * Render a ledger pipeline persona entry.
- */
-function renderLedgerPersona(p, slugMap) {
-  const name    = p.role || '(unknown)';
-  const version = p.version || '?';
-  const number  = p.number || '?';
-
-  let md = `### Stage ${number} — ${name} (v${version})\n\n`;
-  if (p.identity) md += `**Identity:** ${p.identity}\n\n`;
-  if (p.description) md += `${p.description}\n\n`;
-  if (p.inputs)  md += `- **Inputs:** ${p.inputs}\n`;
-  if (p.outputs) md += `- **Outputs:** ${p.outputs}\n`;
-  md += renderKeyBehavior(p.key_behavior);
-  md += renderSubagents(p.subagents, slugMap);
-  md += '\n---\n\n';
-  return md;
-}
-
-/**
- * Render a standalone or ledger-support persona entry.
- */
-function renderStandalonePersona(p, slugMap) {
-  const name    = displayName(p.name || '(unknown)');
-  const version = p.version || '?';
-
-  let md = `### ${name} (v${version})\n\n`;
-  if (p.identity)    md += `**Identity:** ${p.identity}\n\n`;
-  if (p.description) md += `${p.description}\n\n`;
-  md += renderModes(p.modes);
-  if (p.use_when) md += `- **Use When:** ${p.use_when}\n`;
-  md += renderKeyBehavior(p.key_behavior);
-  md += renderSubagents(p.subagents, slugMap);
-  if (p.notes) md += `- **Notes:** ${p.notes}\n`;
-  md += '\n---\n\n';
-  return md;
-}
-
-// ─── Document generation ──────────────────────────────────────────────────────
-
-function generate(ledger, standalone, support, slugMap) {
-  const header     = fs.readFileSync(HEADER_FILE, 'utf8').replace(/\r\n/g, '\n');
-  const now        = new Date().toISOString().slice(0, 10);
-  const total      = ledger.length + standalone.length + support.length;
-
-  let doc = '';
-
-  // Front matter comment and generated-by notice
-  doc += `<!-- Generated by scripts/generate-agents-overview.js — do not edit manually -->\n`;
-  doc += `<!-- To regenerate: node scripts/generate-agents-overview.js -->\n\n`;
-
-  // Replace the first heading in the header with a heading that includes the timestamp
-  const headerWithMeta = header.replace(
-    /^# AI Insights — Agent Persona Overview\n/,
-    `# AI Insights — Agent Persona Overview\n\n` +
-    `> **Generated:** ${now}\n` +
-    `> **Total Personas:** ${total}\n\n` +
-    `This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.\n`
-  );
-  doc += headerWithMeta;
-
-  // Ledger section
-  doc += `## Ledger Pipeline Personas (9-Stage Workflow)\n\n`;
-  for (const p of ledger) doc += renderLedgerPersona(p, slugMap);
-
-  // Standalone section
-  doc += `## Standalone Personas\n\n`;
-  for (const p of standalone) doc += renderStandalonePersona(p, slugMap);
-
-  // Ledger-support section
-  doc += `## Ledger-Support Personas\n\n`;
-  for (const p of support) doc += renderStandalonePersona(p, slugMap);
-
-  // Summary table
-  doc += `## Summary\n\n`;
-  doc += `| Suite | Count | Description |\n`;
-  doc += `|-------|-------|-------------|\n`;
-  doc += `| Ledger Pipeline | ${ledger.length} | Core sequential development workflow (Plan → Implement → Test → Review → Release → Document → Synthesize) |\n`;
-  doc += `| Standalone | ${standalone.length} | On-demand utility agents for planning, documentation, code review, release management, and more |\n`;
-  doc += `| Ledger-Support | ${support.length} | Workflow infrastructure agents for bootstrapping, sequencing, diagnosing, and archiving ledger projects |\n`;
-  doc += `| **Total** | **${total}** | |\n`;
-
-  return doc;
-}
-
-// ─── Main ─────────────────────────────────────────────────────────────────────
-
-const ledger     = loadSuite(LEDGER_META,     'ledger');
-const standalone = loadSuite(STANDALONE_META, 'standalone');
-const support    = loadSuite(SUPPORT_META,    'support');
-const slugMap    = buildSlugMap(standalone, support);
-
-const output = generate(ledger, standalone, support, slugMap);
-
 if (isCheck) {
-  if (!fs.existsSync(OUTPUT_FILE)) {
-    console.error(`[STALE] ${OUTPUT_FILE} does not exist. Run without --check to generate.`);
-    process.exit(1);
-  }
-  const existing = fs.readFileSync(OUTPUT_FILE, 'utf8');
-
-  // Strip the generated timestamp before comparing so date changes don't cause
-  // false-positive stale detection.
-  const normalize = s => s.replace(/^> \*\*Generated:\*\* .+$/m, '> **Generated:** (date)');
-  if (normalize(existing) === normalize(output)) {
+  const findings = checkAgentsOverview({ root: ROOT });
+  if (findings.length === 0) {
     console.log('docs/references/agents-overview.md is up to date.');
     process.exit(0);
-  } else {
-    console.error('[STALE] docs/references/agents-overview.md is out of date. Run node scripts/generate-agents-overview.js to regenerate.');
-    process.exit(1);
   }
+  for (const finding of findings) console.error(`[STALE] ${finding}`);
+  process.exit(1);
+}
+
+const { written, personaCount } = writeAgentsOverview({ root: ROOT });
+if (written) {
+  console.log(`Generated docs/references/agents-overview.md (${personaCount} personas).`);
 } else {
-  fs.writeFileSync(OUTPUT_FILE, output, 'utf8');
-  const total = ledger.length + standalone.length + support.length;
-  console.log(`Generated docs/references/agents-overview.md (${total} personas).`);
+  console.log('docs/references/agents-overview.md is already up to date.');
 }
 
 ```
@@ -5175,6 +5044,291 @@ export function validateAgentSlugReferences(metaDir, contentDir, { stripComments
   }
 
   return errors;
+}
+
+```
+###  Path: `/scripts/lib/agents-overview.js`
+
+```js
+/**
+ * scripts/lib/agents-overview.js
+ *
+ * Renders, checks and writes `docs/references/agents-overview.md` from persona
+ * YAML metadata across all three suites (ledger, standalone, ledger-support).
+ *
+ * Extracted from the former top-level `scripts/generate-agents-overview.js`
+ * (now a thin CLI over this module) so that the persona build can keep the
+ * overview current in-process, and so the write path and the check path share
+ * one render function. No `main()` — matches `scripts/lib/name-mapping.js`.
+ *
+ * The render is deterministic apart from the `> **Generated:**` date line
+ * (suite entries are sorted), and `normalize()` blanks exactly that line. A
+ * write therefore happens only when normalized content differs, so a run that
+ * would change nothing but the date leaves the file untouched.
+ */
+
+import fs   from 'fs';
+import path from 'path';
+import {
+  parseYamlScalars,
+  extractYamlBlockScalar,
+  extractYamlText,
+  extractYamlSequence,
+} from './yaml-utils.js';
+
+const OVERVIEW_RELATIVE_PATH = 'docs/references/agents-overview.md';
+const REGENERATE_COMMAND     = 'node scripts/build-personas.js';
+
+/** Strip the generated date so a date change alone never counts as a difference. */
+function normalize(s) {
+  return s.replace(/^> \*\*Generated:\*\* .+$/m, '> **Generated:** (date)');
+}
+
+// ─── Version helper ───────────────────────────────────────────────────────────
+
+/**
+ * Extracts version from a `changelog: |` block scalar.
+ */
+function resolveVersionFromChangelog(text) {
+  const content = extractYamlBlockScalar(text, 'changelog');
+  if (!content) return undefined;
+  for (const line of content.split(/\r?\n/)) {
+    const withDate = line.match(/^(\d+\.\d+\.\d+)\s*\(\d{4}-\d{2}-\d{2}\)\s*:/);
+    if (withDate) return withDate[1];
+    const withoutDate = line.match(/^(\d+\.\d+\.\d+)\s*:/);
+    if (withoutDate) return withoutDate[1];
+  }
+  return undefined;
+}
+
+// ─── Persona loading ──────────────────────────────────────────────────────────
+
+const LEDGER_SCALARS     = ['number', 'role', 'identity', 'description', 'inputs', 'outputs', 'notes'];
+const STANDALONE_SCALARS = ['slug', 'name', 'description', 'identity', 'use_when', 'notes'];
+
+/**
+ * Parse one persona YAML file into a normalized persona object.
+ * @param {string} filePath
+ * @param {'ledger'|'standalone'|'support'} suite
+ * @returns {object}
+ */
+function loadPersona(filePath, suite) {
+  const text    = fs.readFileSync(filePath, 'utf8');
+  const fields  = suite === 'ledger' ? LEDGER_SCALARS : STANDALONE_SCALARS;
+  const scalars = parseYamlScalars(text, fields);
+
+  const version      = resolveVersionFromChangelog(text);
+  const key_behavior = extractYamlText(text, 'key_behavior');
+  const modes        = extractYamlText(text, 'modes');
+  const subagents    = extractYamlSequence(text, 'subagents');
+
+  return { ...scalars, version, key_behavior, modes, subagents, suite };
+}
+
+/**
+ * Load all non-_shared.yaml personas from a meta directory.
+ */
+function loadSuite(dir, suite) {
+  return fs
+    .readdirSync(dir)
+    .filter(f => f.endsWith('.yaml') && !f.startsWith('_'))
+    .sort()
+    .map(f => loadPersona(path.join(dir, f), suite));
+}
+
+// ─── Slug → name lookup ───────────────────────────────────────────────────────
+
+/**
+ * Build a map of slug → display name from standalone + support personas so
+ * subagent references can be rendered with human-readable names.
+ */
+function buildSlugMap(standalone, support) {
+  const map = {};
+  for (const p of [...standalone, ...support]) {
+    const slug = p.slug || p.name?.toLowerCase().replace(/\s+/g, '-') || '';
+    if (slug) map[slug] = p.name || slug;
+  }
+  return map;
+}
+
+// ─── Name formatting ──────────────────────────────────────────────────────────
+
+/**
+ * Normalize display names: "(Standalone)" → "— Standalone" to avoid
+ * double-parentheses in headings like "### Developer (Standalone) (v1.4.0)".
+ */
+function displayName(name) {
+  return name.replace(/\(Standalone\)/, '— Standalone');
+}
+
+// ─── Markdown rendering ───────────────────────────────────────────────────────
+
+function renderSubagents(slugs, slugMap) {
+  if (!slugs || slugs.length === 0) return '';
+  const names = slugs.map(s => slugMap[s] || s);
+  return `- **Sub-agents:** ${names.join(', ')}\n`;
+}
+
+function renderKeyBehavior(kb) {
+  if (!kb) return '';
+  const firstLine = kb.split(/\r?\n/).find(l => l.trim());
+  return firstLine ? `- **Key Behavior:** ${firstLine}\n` : '';
+}
+
+function renderModes(modes) {
+  if (!modes) return '';
+  const items = modes.split(/\r?\n/).filter(l => l.trim()).join(', ');
+  return items ? `- **Modes:** ${items}\n` : '';
+}
+
+/**
+ * Render a ledger pipeline persona entry.
+ */
+function renderLedgerPersona(p, slugMap) {
+  const name    = p.role || '(unknown)';
+  const version = p.version || '?';
+  const number  = p.number || '?';
+
+  let md = `### Stage ${number} — ${name} (v${version})\n\n`;
+  if (p.identity) md += `**Identity:** ${p.identity}\n\n`;
+  if (p.description) md += `${p.description}\n\n`;
+  if (p.inputs)  md += `- **Inputs:** ${p.inputs}\n`;
+  if (p.outputs) md += `- **Outputs:** ${p.outputs}\n`;
+  md += renderKeyBehavior(p.key_behavior);
+  md += renderSubagents(p.subagents, slugMap);
+  md += '\n---\n\n';
+  return md;
+}
+
+/**
+ * Render a standalone or ledger-support persona entry.
+ */
+function renderStandalonePersona(p, slugMap) {
+  const name    = displayName(p.name || '(unknown)');
+  const version = p.version || '?';
+
+  let md = `### ${name} (v${version})\n\n`;
+  if (p.identity)    md += `**Identity:** ${p.identity}\n\n`;
+  if (p.description) md += `${p.description}\n\n`;
+  md += renderModes(p.modes);
+  if (p.use_when) md += `- **Use When:** ${p.use_when}\n`;
+  md += renderKeyBehavior(p.key_behavior);
+  md += renderSubagents(p.subagents, slugMap);
+  if (p.notes) md += `- **Notes:** ${p.notes}\n`;
+  md += '\n---\n\n';
+  return md;
+}
+
+// ─── Document generation ──────────────────────────────────────────────────────
+
+function generate(ledger, standalone, support, slugMap, headerFile) {
+  const header     = fs.readFileSync(headerFile, 'utf8').replace(/\r\n/g, '\n');
+  const now        = new Date().toISOString().slice(0, 10);
+  const total      = ledger.length + standalone.length + support.length;
+
+  let doc = '';
+
+  // Front matter comment and generated-by notice
+  doc += `<!-- Generated by scripts/generate-agents-overview.js — do not edit manually -->\n`;
+  doc += `<!-- To regenerate: node scripts/generate-agents-overview.js -->\n\n`;
+
+  // Replace the first heading in the header with a heading that includes the timestamp
+  const headerWithMeta = header.replace(
+    /^# AI Insights — Agent Persona Overview\n/,
+    `# AI Insights — Agent Persona Overview\n\n` +
+    `> **Generated:** ${now}\n` +
+    `> **Total Personas:** ${total}\n\n` +
+    `This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.\n`
+  );
+  doc += headerWithMeta;
+
+  // Ledger section
+  doc += `## Ledger Pipeline Personas (9-Stage Workflow)\n\n`;
+  for (const p of ledger) doc += renderLedgerPersona(p, slugMap);
+
+  // Standalone section
+  doc += `## Standalone Personas\n\n`;
+  for (const p of standalone) doc += renderStandalonePersona(p, slugMap);
+
+  // Ledger-support section
+  doc += `## Ledger-Support Personas\n\n`;
+  for (const p of support) doc += renderStandalonePersona(p, slugMap);
+
+  // Summary table
+  doc += `## Summary\n\n`;
+  doc += `| Suite | Count | Description |\n`;
+  doc += `|-------|-------|-------------|\n`;
+  doc += `| Ledger Pipeline | ${ledger.length} | Core sequential development workflow (Plan → Implement → Test → Review → Release → Document → Synthesize) |\n`;
+  doc += `| Standalone | ${standalone.length} | On-demand utility agents for planning, documentation, code review, release management, and more |\n`;
+  doc += `| Ledger-Support | ${support.length} | Workflow infrastructure agents for bootstrapping, sequencing, diagnosing, and archiving ledger projects |\n`;
+  doc += `| **Total** | **${total}** | |\n`;
+
+  return doc;
+}
+
+// ─── Public API ───────────────────────────────────────────────────────────────
+
+function resolvePaths(root, outputFile) {
+  return {
+    outputFile: outputFile ?? path.join(root, 'docs', 'references', 'agents-overview.md'),
+    headerFile: path.join(root, 'scripts', 'templates', 'agents-overview-header.md'),
+    ledgerMeta:     path.join(root, 'personas', 'ledger',         'src', 'meta'),
+    standaloneMeta: path.join(root, 'personas', 'standalone',     'src', 'meta'),
+    supportMeta:    path.join(root, 'personas', 'ledger-support', 'src', 'meta'),
+  };
+}
+
+function renderWithCount(root, outputFile) {
+  const paths      = resolvePaths(root, outputFile);
+  const ledger     = loadSuite(paths.ledgerMeta,     'ledger');
+  const standalone = loadSuite(paths.standaloneMeta, 'standalone');
+  const support    = loadSuite(paths.supportMeta,    'support');
+  const slugMap    = buildSlugMap(standalone, support);
+  return {
+    paths,
+    output: generate(ledger, standalone, support, slugMap, paths.headerFile),
+    personaCount: ledger.length + standalone.length + support.length,
+  };
+}
+
+/**
+ * Renders the full overview document for today's date.
+ * @param {{ root: string }} options
+ * @returns {string}
+ */
+export function renderAgentsOverview({ root }) {
+  return renderWithCount(root).output;
+}
+
+/**
+ * Compares the overview on disk with the freshly rendered one, ignoring the date line.
+ * @param {{ root: string, outputFile?: string }} options
+ * @returns {string[]} Empty when current; otherwise one finding naming the file and the regenerate command.
+ */
+export function checkAgentsOverview({ root, outputFile }) {
+  const { paths, output } = renderWithCount(root, outputFile);
+  if (!fs.existsSync(paths.outputFile)) {
+    return [`${OVERVIEW_RELATIVE_PATH} does not exist. Run ${REGENERATE_COMMAND} to generate it.`];
+  }
+  const existing = fs.readFileSync(paths.outputFile, 'utf8');
+  if (normalize(existing) === normalize(output)) return [];
+  return [`${OVERVIEW_RELATIVE_PATH} is out of date. Run ${REGENERATE_COMMAND} to regenerate it.`];
+}
+
+/**
+ * Renders the overview and writes it only when normalized content differs (or the file is missing).
+ * @param {{ root: string, outputFile?: string }} options
+ * @returns {{ written: boolean, personaCount: number }}
+ */
+export function writeAgentsOverview({ root, outputFile }) {
+  const { paths, output, personaCount } = renderWithCount(root, outputFile);
+  if (fs.existsSync(paths.outputFile)) {
+    const existing = fs.readFileSync(paths.outputFile, 'utf8');
+    if (normalize(existing) === normalize(output)) return { written: false, personaCount };
+  }
+  fs.mkdirSync(path.dirname(paths.outputFile), { recursive: true });
+  fs.writeFileSync(paths.outputFile, output, 'utf8');
+  return { written: true, personaCount };
 }
 
 ```
@@ -7771,6 +7925,285 @@ export function checkPhilosophyToneInDirs(contentDirs, { stripComments } = {}) {
   }
 
   return warnings;
+}
+
+```
+###  Path: `/scripts/lib/pr-review-comments.js`
+
+```js
+/**
+ * scripts/lib/pr-review-comments.js
+ *
+ * Pure logic for scripts/fetch-pr-review-comments.js: argument parsing, the
+ * GitHub GraphQL query, paginated thread fetching, and thread filtering.
+ *
+ * The `gh` invocation is injected (`runGh`) so everything here is testable
+ * without network access or a GitHub CLI install.
+ */
+
+import { spawnSync } from 'child_process';
+
+/** Default reviewer filter: any author login containing "copilot" (case-insensitive). */
+export const DEFAULT_AUTHOR_PATTERN = 'copilot';
+
+/** GraphQL page size for review threads (GitHub maximum). */
+const THREAD_PAGE_SIZE = 100;
+
+/** Hard stop for pagination, guarding against a cursor that never ends. */
+const MAX_PAGES = 50;
+
+export const REVIEW_THREADS_QUERY = `
+query($owner:String!,$repo:String!,$pr:Int!,$cursor:String){
+  repository(owner:$owner,name:$repo){
+    pullRequest(number:$pr){
+      reviewThreads(first:${THREAD_PAGE_SIZE},after:$cursor){
+        pageInfo{ hasNextPage endCursor }
+        nodes{
+          id isResolved isOutdated path line startLine
+          comments(first:50){
+            totalCount
+            nodes{ author{login} body url }
+          }
+        }
+      }
+    }
+  }
+}`;
+
+export const HELP = `
+Usage: node scripts/fetch-pr-review-comments.js [options]
+
+Fetch review comments of a pull request as a JSON array on stdout.
+By default only unresolved, non-outdated threads whose first comment was
+written by Copilot are returned. Run it from inside the repository to review.
+
+Options:
+  --pr <number>        Pull request number (default: PR of the current branch)
+  --repo <owner/name>  Repository (default: repository of the current directory)
+  --author <regex>     Case-insensitive pattern matched against the login of the
+                       thread's first comment (default: "${DEFAULT_AUTHOR_PATTERN}").
+                       Use ".*" to include every reviewer.
+  --include-resolved   Also return resolved threads
+  --include-outdated   Also return outdated threads
+  --help               Show this help
+
+Output (one object per thread):
+  { id, path, line, startLine, isResolved, isOutdated, author, body, url,
+    commentCount }
+  "body"/"author"/"url" belong to the thread's first comment.
+
+Requires the GitHub CLI (gh), authenticated. Exit code 1 on any failure.
+`;
+
+/**
+ * Parse CLI arguments.
+ *
+ * @param {string[]} argv Arguments after the script name.
+ * @returns {{ help: boolean, pr: number|null, repo: string|null, author: string,
+ *             includeResolved: boolean, includeOutdated: boolean }}
+ * @throws {Error} On unknown flags, missing values, or malformed values.
+ */
+export function parseArgs(argv) {
+  const opts = {
+    help: false,
+    pr: null,
+    repo: null,
+    author: DEFAULT_AUTHOR_PATTERN,
+    includeResolved: false,
+    includeOutdated: false,
+  };
+
+  const takeValue = (flag, i) => {
+    const value = argv[i + 1];
+    if (value === undefined || value.startsWith('--')) {
+      throw new Error(`${flag} requires a value`);
+    }
+    return value;
+  };
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    switch (arg) {
+      case '--help':
+      case '-h':
+        opts.help = true;
+        break;
+      case '--include-resolved':
+        opts.includeResolved = true;
+        break;
+      case '--include-outdated':
+        opts.includeOutdated = true;
+        break;
+      case '--pr': {
+        const raw = takeValue(arg, i++);
+        if (!/^[1-9]\d*$/.test(raw)) {
+          throw new Error(`--pr must be a positive integer, got "${raw}"`);
+        }
+        opts.pr = Number(raw);
+        break;
+      }
+      case '--repo': {
+        const raw = takeValue(arg, i++);
+        if (!/^[\w.-]+\/[\w.-]+$/.test(raw)) {
+          throw new Error(`--repo must look like owner/name, got "${raw}"`);
+        }
+        opts.repo = raw;
+        break;
+      }
+      case '--author':
+        opts.author = takeValue(arg, i++);
+        break;
+      default:
+        throw new Error(`Unknown option: ${arg}`);
+    }
+  }
+
+  return opts;
+}
+
+/**
+ * Compile the author pattern, turning a bad regex into a readable error.
+ *
+ * @param {string} pattern
+ * @returns {RegExp}
+ */
+export function compileAuthorPattern(pattern) {
+  try {
+    return new RegExp(pattern, 'i');
+  } catch (err) {
+    throw new Error(`--author is not a valid regular expression: ${err.message}`);
+  }
+}
+
+/**
+ * Real `gh` runner. Returns stdout; throws an Error carrying gh's stderr on failure.
+ *
+ * @param {string[]} args
+ * @returns {string}
+ */
+export function runGh(args) {
+  const result = spawnSync('gh', args, { encoding: 'utf8', shell: false });
+  if (result.error) {
+    if (result.error.code === 'ENOENT') {
+      throw new Error('The GitHub CLI (gh) was not found on PATH. Install it from https://cli.github.com/ and run `gh auth login`.');
+    }
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    const detail = (result.stderr || result.stdout || '').trim();
+    throw new Error(`gh ${args.slice(0, 2).join(' ')} failed (exit ${result.status}): ${detail}`);
+  }
+  return result.stdout;
+}
+
+/**
+ * Resolve owner/name and PR number, asking `gh` for whatever was not given.
+ *
+ * @param {{ repo: string|null, pr: number|null }} opts
+ * @param {(args: string[]) => string} gh
+ * @returns {{ owner: string, repo: string, pr: number }}
+ */
+export function resolveTarget(opts, gh = runGh) {
+  const nameWithOwner = opts.repo
+    ?? gh(['repo', 'view', '--json', 'nameWithOwner', '--jq', '.nameWithOwner']).trim();
+  const [owner, repo] = nameWithOwner.split('/');
+  if (!owner || !repo) {
+    throw new Error(`Could not determine the repository (got "${nameWithOwner}"). Pass --repo owner/name.`);
+  }
+
+  let pr = opts.pr;
+  if (pr === null) {
+    const raw = gh(['pr', 'view', '--json', 'number', '--jq', '.number']).trim();
+    pr = Number(raw);
+    if (!Number.isInteger(pr) || pr < 1) {
+      throw new Error('Could not determine the PR of the current branch. Pass --pr <number>.');
+    }
+  }
+
+  return { owner, repo, pr };
+}
+
+/**
+ * Fetch every review thread of a PR, following pagination.
+ *
+ * Strings go through `-f` (raw) rather than `-F` so a repo or cursor that
+ * looks numeric is never coerced; only the PR number uses `-F`.
+ *
+ * @param {{ owner: string, repo: string, pr: number }} target
+ * @param {(args: string[]) => string} gh
+ * @returns {object[]} Raw GraphQL thread nodes.
+ */
+export function fetchReviewThreads({ owner, repo, pr }, gh = runGh) {
+  const threads = [];
+  let cursor = null;
+
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const args = [
+      'api', 'graphql',
+      '-f', `query=${REVIEW_THREADS_QUERY}`,
+      '-f', `owner=${owner}`,
+      '-f', `repo=${repo}`,
+      '-F', `pr=${pr}`,
+    ];
+    if (cursor) args.push('-f', `cursor=${cursor}`);
+
+    let payload;
+    try {
+      payload = JSON.parse(gh(args));
+    } catch (err) {
+      if (err instanceof SyntaxError) {
+        throw new Error(`gh returned malformed JSON: ${err.message}`);
+      }
+      throw err;
+    }
+
+    if (Array.isArray(payload.errors) && payload.errors.length > 0) {
+      throw new Error(`GitHub GraphQL error: ${payload.errors.map((e) => e.message).join('; ')}`);
+    }
+
+    const pullRequest = payload?.data?.repository?.pullRequest;
+    if (!pullRequest) {
+      throw new Error(`Pull request #${pr} not found in ${owner}/${repo}.`);
+    }
+
+    const { nodes, pageInfo } = pullRequest.reviewThreads;
+    threads.push(...nodes);
+
+    if (!pageInfo.hasNextPage) return threads;
+    cursor = pageInfo.endCursor;
+  }
+
+  throw new Error(`Stopped after ${MAX_PAGES} pages of review threads; refusing to paginate further.`);
+}
+
+/**
+ * Filter raw threads and flatten them into the output records.
+ *
+ * @param {object[]} threads Raw GraphQL thread nodes.
+ * @param {{ author: string, includeResolved: boolean, includeOutdated: boolean }} opts
+ * @returns {object[]}
+ */
+export function selectThreads(threads, opts) {
+  const authorRe = compileAuthorPattern(opts.author);
+
+  return threads
+    .filter((t) => opts.includeResolved || !t.isResolved)
+    .filter((t) => opts.includeOutdated || !t.isOutdated)
+    .map((t) => ({ thread: t, first: t.comments?.nodes?.[0] ?? null }))
+    // A thread without comments cannot be attributed, so it never matches.
+    .filter(({ first }) => first !== null && authorRe.test(first.author?.login ?? ''))
+    .map(({ thread, first }) => ({
+      id: thread.id,
+      path: thread.path,
+      line: thread.line,
+      startLine: thread.startLine,
+      isResolved: thread.isResolved,
+      isOutdated: thread.isOutdated,
+      author: first.author?.login ?? null,
+      body: first.body,
+      url: first.url,
+      commentCount: thread.comments.totalCount,
+    }));
 }
 
 ```

@@ -72,6 +72,10 @@ vs_file_name: agents-md-curator.agent.md
 id: standalone-agents-md-curator
 cc_file_name: agents-md-curator.md
 changelog: |
+  2.7.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
   2.7.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
     reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
     own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
@@ -477,6 +481,15 @@ vs_file_name: developer-standalone.agent.md
 id: developer-standalone
 cc_file_name: developer-standalone.md
 changelog: |
+  1.20.0 (2026-11-19): Added an Error Codes subsection (new shared error-code-generation partial) covering
+    `ledger_generate_error_code` and `ledger_list_temporary_error_codes` — one base per new class/module that
+    throws coded exceptions, the `TEMPORARY ERROR CODE` marker and synthesis-report location for a temporary or
+    placeholder code, and never choosing or configuring a provider; gained a narrow, two-tool `central_pm` MCP
+    grant and `use_when` no longer claims no MCP server is needed.
+  1.19.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
   1.19.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
     reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
     own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
@@ -531,8 +544,14 @@ tools:
   - browser
   - agent
   - todo
+  # Narrow MCP grant: only error-code allocation, never full ledger workflow access
+  - central_pm/ledger_generate_error_code
+  - central_pm/ledger_list_temporary_error_codes
 
-# Differs from default: no WebFetch/WebSearch, matching the vs-code grant (no `web` tool)
+# Differs from default: no WebFetch/WebSearch, matching the vs-code grant (no `web` tool).
+# The two mcp__central_pm__… entries are Claude Code's required double-underscore form of
+# the narrow `central_pm/ledger_*` grants above — raw `central_pm/ledger_*` is VS Code-only
+# syntax and never resolves under Claude Code `--agent` invocation.
 cc_tools:
   - Bash
   - Read
@@ -543,6 +562,13 @@ cc_tools:
   - Task
   - TodoRead
   - TodoWrite
+  - mcp__central_pm__ledger_generate_error_code
+  - mcp__central_pm__ledger_list_temporary_error_codes
+
+# Required for the mcpServers block in the Claude Code output — this persona otherwise
+# has no shared MCP dependency, hence the narrow per-tool grants above rather than a
+# server-level wildcard.
+mcp_server_name: central_pm
 
 audit_guide_version: "3.3"
 audit_date: "2026-08-27"
@@ -553,6 +579,9 @@ dev_work_scope: "the plan"
 
 # no-stale-counts partial substitution
 stale_counts_targets: "documentation, summaries, or synthesis output"
+
+# error-code-generation partial substitution
+temporary_code_report_location: "as an insights.jsonl entry (type `debt`, priority `medium`), so it surfaces in the **Code Insights** section of `synthesis.md`"
 
 # insight-reporting-rules partial substitutions
 insight_reporting_intro: "The `### Code Insights` section of `synthesis.md` is where observations reach the reader."
@@ -577,7 +606,7 @@ subagents:
 
 # overview metadata
 identity: "Staff Software Engineer"
-use_when: "Implementing a plan document outside the ledger workflow (no MCP server needed)"
+use_when: "Implementing a plan document outside the ledger workflow; MCP server optional — used only for error-code allocation"
 notes: "Works from a plan document directly instead of Work Packages; includes end-of-plan synthesis"
 
 ```
@@ -591,6 +620,10 @@ vs_file_name: documentation-curator.agent.md
 id: standalone-documentation-curator
 cc_file_name: documentation-curator.md
 changelog: |
+  1.7.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
   1.7.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
     reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
     own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
@@ -737,6 +770,17 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  2.0.0 (2026-11-10): Retired `api-surface.md` in favour of `architecture-notes.md`, which keeps only what the code
+    cannot show about itself: cross-boundary contracts with their producers and consumers, architectural decisions
+    with the source of their rationale, and runtime substrate outside the tracked tree. The One-File Test decides
+    what qualifies. Per-class and per-method descriptions belong in code comments, and gaps there are reported to the
+    file's owner, never written by the curator. Update proposes an item-by-item migration of an existing
+    `api-surface.md` and waits for approval; Audit flags one still present. The internal-consistency check now
+    resolves every named symbol in the codebase, and rationale may be sourced from commits, plans or the user.
+  1.10.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
   1.10.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
     reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
     own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
@@ -959,6 +1003,10 @@ vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.5.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
   2.5.1 (2026-10-28): The Output Location now describes `design-review.md` as an input file and names the Planner as
     its reader. Claude Code tells every sub-agent to write no report or findings files and to return findings as a
     reply, but exempts files written as input to another tool; a Plan Auditor dispatched by the Plan Refiner on
@@ -1146,6 +1194,10 @@ vs_file_name: plan-refiner.agent.md
 id: standalone-plan-refiner
 cc_file_name: plan-refiner.md
 changelog: |
+  1.10.1 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
   1.10.0 (2026-10-28): The Plan Architect Reviewer, Plan Auditor and Usage Scenarios Curator dispatches now pass the
     output path (`design-review.md`, `audit.md`, `scenario-coverage.md` under `{PLAN_DIR}`) on every target. The
     shared `subagent-briefing` section now has a dispatch prompt name the file the next step reads the sub-agent's
@@ -1322,6 +1374,10 @@ vs_file_name: readme-curator.agent.md
 id: standalone-readme-curator
 cc_file_name: readme-curator.md
 changelog: |
+  1.10.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
   1.10.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
     reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
     own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
@@ -1490,6 +1546,10 @@ vs_file_name: researcher.agent.md
 id: standalone-researcher
 cc_file_name: researcher.md
 changelog: |
+  1.4.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
   1.4.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
     reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
     own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
@@ -1672,6 +1732,15 @@ vs_file_name: web-gui-specialist.agent.md
 id: standalone-web-gui-specialist
 cc_file_name: web-gui-specialist.md
 changelog: |
+  1.10.0 (2026-11-19): Added an Error Codes subsection (new shared error-code-generation partial) covering
+    `ledger_generate_error_code` and `ledger_list_temporary_error_codes` — one base per new class/module that
+    throws coded exceptions, the `TEMPORARY ERROR CODE` marker and synthesis-report location for a temporary or
+    placeholder code, and never choosing or configuring a provider; gained a narrow, two-tool `central_pm` MCP
+    grant.
+  1.9.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
   1.9.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
     reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
     own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
@@ -1715,6 +1784,14 @@ tools:
   - browser
   - agent
   - todo
+  # Narrow MCP grant: only error-code allocation, never full ledger workflow access
+  - central_pm/ledger_generate_error_code
+  - central_pm/ledger_list_temporary_error_codes
+
+# Required for the mcpServers block in the Claude Code output — this persona otherwise
+# has no shared MCP dependency, hence the narrow per-tool grants above rather than a
+# server-level wildcard.
+mcp_server_name: central_pm
 
 # VS Code web access comes from `browser` (live page rendering/interaction),
 # which has no Claude Code counterpart — Claude Code's web grant is
@@ -1727,6 +1804,9 @@ tool_parity_exceptions:
 insight_agent: Web GUI Specialist
 insight_report_target: "the **Interface Insights** section of `synthesis.md`"
 
+# error-code-generation partial substitution
+temporary_code_report_location: "as an insights.jsonl entry (type `debt`, priority `medium`), so it surfaces in the **Interface Insights** section of `synthesis.md`"
+
 # research-brief-protocol partial substitutions
 brief_orientation: "Every area of the brief is in scope, whatever tags its entries carry"
 brief_purpose: "Interface Recon"
@@ -1734,7 +1814,10 @@ brief_authority: "the current state of the code"
 
 # cc_tools: explicit list required — the builder resolves cc_tools from
 # cc_tools → tools (never default_cc_tools), so the VS Code tools list
-# would be used otherwise, which lacks Task.
+# would be used otherwise, which lacks Task. The two mcp__central_pm__…
+# entries are Claude Code's required double-underscore form of the narrow
+# `central_pm/ledger_*` grants above — raw `central_pm/ledger_*` is VS
+# Code-only syntax that never resolves under Claude Code `--agent` invocation.
 cc_tools:
   - Bash
   - Read
@@ -1747,6 +1830,8 @@ cc_tools:
   - WebSearch
   - TodoRead
   - TodoWrite
+  - mcp__central_pm__ledger_generate_error_code
+  - mcp__central_pm__ledger_list_temporary_error_codes
 
 subagents:
   - ledger-synthesis-maintainer
@@ -1855,6 +1940,10 @@ vs_file_name: workspace-architect.agent.md
 id: standalone-workspace-architect
 cc_file_name: workspace-architect.md
 changelog: |
+  1.9.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
   1.9.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
     reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
     own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that

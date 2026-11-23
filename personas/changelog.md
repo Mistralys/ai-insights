@@ -1,18 +1,15 @@
 # Personas Changelog
 
-## v3.39.0 - **WIP; UNRELEASED**
+## v3.39.0 - Error-Code Tools for Developers
 
 **Developer and Web GUI Specialist, in the ledger and standalone suites alike, can now request
 error-code bases for new classes and modules.** A shared Error Codes partial covers the
-request/temporary-code rules across all three personas.
+request and temporary-code rules across all three personas.
 
-- Ledger: Developer gained `ledger_generate_error_code` and `ledger_list_temporary_error_codes`,
-  with a new shared Error Codes partial covering one base per class/module, the
-  `TEMPORARY ERROR CODE` marker, and never choosing or configuring a provider.
-- Standalone: Developer and Web GUI Specialist gained the same two error-code tools, scoped
-  narrowly to error-code allocation rather than full ledger workflow access.
-- Build: The persona build keeps `docs/references/agents-overview.md` current;
-  `--check` fails when it is stale.
+- Ledger: Developer can now request error-code bases and list outstanding temporary codes.
+- Standalone: Developer and Web GUI Specialist gained the same two error-code tools.
+- Shared: New Error Codes partial sets one base per class or module and a temporary-code marker.
+- Build: The persona build keeps the agents overview reference current and flags stale copies.
 
 ## v3.38.0 - Check-Only Chains Prevented, Handoffs Fixed
 

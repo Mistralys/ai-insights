@@ -179,6 +179,13 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
+  3.15.0 (2026-10-29): The five sub-agent dispatch steps now continue on the agent's report rather than its task
+    notification. The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed. The Claude Code handoff block now ends the turn
+    with `HANDED OFF: {next_agent}` after launching a successor, so whoever dispatched this agent knows the chain is
+    still running.
   3.14.0 (2026-10-28): The WP Decomposer (both modes), Dependency Sequencer and Pipeline Configurator dispatches now
     carry the path of the file named under Expected output. The shared `subagent-briefing` section now has a dispatch
     prompt name the file the next step reads the sub-agent's result from: the output file is part of the task, not the
@@ -307,6 +314,12 @@ id: ledger-3-dev
 cc_file_name: 3-developer.md
 da_file_name: 3-developer.md
 changelog: |
+  3.20.0 (2026-11-19): Added an Error Codes subsection (new shared error-code-generation partial) covering
+    `ledger_generate_error_code` and `ledger_list_temporary_error_codes` — one base per new class/module that
+    throws coded exceptions, the `TEMPORARY ERROR CODE` marker and ledger-observation report for a temporary or
+    placeholder code, and never choosing or configuring a provider.
+  3.19.2 (2026-10-29): The Claude Code handoff block now ends the turn with `HANDED OFF: {next_agent}` after launching
+    a successor, so whoever dispatched this agent knows the chain is still running.
   3.19.1 (2026-10-26): Claude Code auto-handoff now passes only `subagent_type`, `description` and `prompt`, and ends the stage once the
     launch acknowledgement returns — a `name` started successors as teammates outside the dispatcher's task, told to report through a
     `SendMessage` tool they never had, and `run_in_background: false` is ignored since every dispatch runs in the background
@@ -396,6 +409,9 @@ dev_work_scope: "every work package"
 # no-stale-counts partial substitution
 stale_counts_targets: "documentation, summaries, or pipeline comments"
 
+# error-code-generation partial substitution
+temporary_code_report_location: "as a ledger observation (`ledger_add_observation`, type `debt`, priority `medium`), so it surfaces in the WP's pipeline comments"
+
 # insight-reporting-rules partial substitutions
 insight_reporting_intro: "Observations are already in the ledger via `ledger_add_observation` calls made during implementation. When calling `ledger_complete_pipeline`, include a summary of them in the `comments` parameter. To add an observation after the pipeline is already completed, call `ledger_add_observation` again."
 insight_compile_source: "The `comments` summary reflects what was recorded via `ledger_add_observation` during implementation, not what can be remembered at the end."
@@ -428,6 +444,10 @@ mcp_tools:
   - tool: ledger_help
     note_only: true
     purpose: "Get usage documentation and examples for any ledger tool."
+  - tool: ledger_generate_error_code
+    purpose: "Get a new error-code base number for a new class or module that throws coded exceptions, sourced through the configured error-code provider (falls back to a temporary placeholder code when unavailable)."
+  - tool: ledger_list_temporary_error_codes
+    purpose: "List logged temporary/placeholder error codes, so a TEMPORARY ERROR CODE marker can later be replaced with a real base."
 
 # overview metadata
 identity: "Staff Software Engineer"
@@ -448,6 +468,8 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.10.3 (2026-10-29): The Claude Code handoff block now ends the turn with `HANDED OFF: {next_agent}` after launching
+    a successor, so whoever dispatched this agent knows the chain is still running.
   3.10.2 (2026-10-26): Claude Code auto-handoff now passes only `subagent_type`, `description` and `prompt`, and ends the stage once the
     launch acknowledgement returns — a `name` started successors as teammates outside the dispatcher's task, told to report through a
     `SendMessage` tool they never had, and `run_in_background: false` is ignored since every dispatch runs in the background
@@ -560,6 +582,8 @@ da_file_name: 5-security-auditor.md
 audit_guide_version: "3.4"
 audit_date: "2026-09-02"
 changelog: |
+  3.10.5 (2026-10-29): The Claude Code handoff block now ends the turn with `HANDED OFF: {next_agent}` after launching
+    a successor, so whoever dispatched this agent knows the chain is still running.
   3.10.4 (2026-10-26): Claude Code auto-handoff now passes only `subagent_type`, `description` and `prompt`, and ends the stage once the
     launch acknowledgement returns — a `name` started successors as teammates outside the dispatcher's task, told to report through a
     `SendMessage` tool they never had, and `run_in_background: false` is ignored since every dispatch runs in the background
@@ -663,6 +687,8 @@ da_file_name: 6-reviewer.md
 audit_guide_version: "3.5"
 audit_date: "2026-09-02"
 changelog: |
+  3.12.2 (2026-10-29): The Claude Code handoff block now ends the turn with `HANDED OFF: {next_agent}` after launching
+    a successor, so whoever dispatched this agent knows the chain is still running.
   3.12.1 (2026-10-26): Claude Code auto-handoff now passes only `subagent_type`, `description` and `prompt`, and ends the stage once the
     launch acknowledgement returns — a `name` started successors as teammates outside the dispatcher's task, told to report through a
     `SendMessage` tool they never had, and `run_in_background: false` is ignored since every dispatch runs in the background
@@ -773,6 +799,12 @@ id: ledger-7-release-engineer
 cc_file_name: 7-release-engineer.md
 da_file_name: 7-release-engineer.md
 changelog: |
+  3.11.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed. The Claude Code handoff block now ends the turn
+    with `HANDED OFF: {next_agent}` after launching a successor, so whoever dispatched this agent knows the chain is
+    still running.
   3.11.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
     reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
     own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
@@ -889,6 +921,12 @@ id: ledger-8-docs
 cc_file_name: 8-documentation.md
 da_file_name: 8-documentation.md
 changelog: |
+  3.13.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed. The Claude Code handoff block now ends the turn
+    with `HANDED OFF: {next_agent}` after launching a successor, so whoever dispatched this agent knows the chain is
+    still running.
   3.13.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
     reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
     own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
@@ -1023,6 +1061,10 @@ cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 
 changelog: |
+  3.15.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
   3.15.1 (2026-10-28): The Output Format's Report Document is now the Synthesis Document, described as input for
     `ledger_complete_synthesis` and the Knowledge Archiver rather than as a report. Claude Code tells every sub-agent
     to write no report or summary files and to return findings as a reply, but exempts files written as input to

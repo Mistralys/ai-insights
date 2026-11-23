@@ -1524,7 +1524,7 @@ A project is `COMPLETE` when:
 ### 20.1 Atomic Writes
 
 All file writes use a write-to-temp-then-rename pattern:
-1. Write data to `{file}.tmp.{pid}`
+1. Write data to `{file}.tmp.{pid}.{uuid}`
 2. Atomically rename to target file
 
 This ensures readers never see partial writes.

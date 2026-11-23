@@ -699,6 +699,73 @@ Lightweight health check — verifies MCP server reachability and detects stale 
 
 ---
 
+### Error Code Tools
+
+Expose the pluggable error-code allocator (`src/error-codes/allocator.ts`) and its temporary-code fallback log (`src/error-codes/temporary-codes.ts`) to agents. Both tools are user-level — scoped to `~/.ai-insights/error-codes/`, not to a ledger plan folder — so neither accepts `project_path`. The active provider is configured by the user in the GUI's Error Codes tab, never by an agent call.
+
+#### `ledger_generate_error_code`
+
+```typescript
+(args: { cwd_path?: string; context?: string; temporary?: boolean }) => Promise<MCPResult>
+```
+
+Allocates a new error-code base number through the configured provider. Never throws for a provider, network, or configuration failure — every one of those falls back to a temporary code instead (see `fallback_reason` below). `cwd_path` is passed through to repository resolution (`src/error-codes/project-info.ts`) and matters whenever the active provider scopes by repository.
+
+**Response shape** (`ErrorCodeResult`, `src/error-codes/allocator.ts`):
+
+```typescript
+{
+  code: string;                // The allocated (or temporary) base number, as digits
+  temporary: boolean;          // true when code is a placeholder, not a real provider-issued base
+  provider: string | null;     // The provider id that produced code, or null for a pre-provider temporary code
+  fallback_reason?: 'throttled' | 'misconfigured' | 'unavailable' | 'rejected' | 'invalid_response' | 'failed' | 'requested';
+  detail?: string;             // Redacted free-text detail; absent when fallback_reason says enough
+  waited_ms?: number;          // Present only when a throttled retry occurred
+  repository: RepositoryInfo | null;
+  first_component_code: string; // code + "01" — the first component code ready to use
+  message: string;
+  instruction: string;
+  warning?: string;            // A non-fatal problem to report to the user, e.g. a corrupt temporary-code log that was recovered
+}
+```
+
+**Temporary-code format:** `{temporary_prefix}` (`"777"` by default, configurable; 1–6 digits, no leading zero — `TEMPORARY_PREFIX_PATTERN` in `config-store.ts`) followed by six zero-padded digits counting up from `1` (e.g. `777000001`). `{prefix}000000` (e.g. `777000000`) is reserved as the "MCP unavailable" placeholder used elsewhere in the workflow and is never issued here. A real, provider-issued `code` has whatever shape the active provider returns.
+
+**Component-code convention:** treat `code` as a base; append a two-digit, zero-padded component number in introduction order (`{base}01`, `{base}02`, …). `first_component_code` already supplies `{base}01`.
+
+**Error handling:** an MCP error (`isError: true`) is returned only when the temporary-code store itself fails (an unreadable log, disk full, lock timeout, counter exhausted) — never for a provider failure, which falls back instead. A corrupt but readable temporary-code log does not fail the call: it is recovered (a copy is kept, numbering continues above every counter still visible) and the recovery is reported in `warning`. A corrupt `file`-provider counter file is a provider failure (`failed`), so it falls back to a temporary code with the counter-file detail rather than restarting the sequence.
+
+**Implementation:** `src/tools/error-codes.ts`, wiring `allocateErrorCode` with real dependencies: the live provider registry (`src/error-codes/provider-registry.ts`), `loadErrorCodeConfig` (`src/error-codes/config-store.ts`), `resolveRepositoryInfo` (`src/error-codes/project-info.ts`), a real `setTimeout`-backed sleep, and `Date.now()`.
+
+#### `ledger_list_temporary_error_codes`
+
+```typescript
+(args: { filter?: string }) => Promise<MCPResult>
+```
+
+Lists every temporary code logged by `ledger_generate_error_code`'s fallback path, so an agent can find and replace placeholder codes once the configured provider is working again. `filter`, when supplied, matches entries whose `context` or `repository` contains it as a (case-sensitive) substring.
+
+**Response shape:**
+
+```typescript
+{
+  entries: Array<{
+    code: string;
+    issued_at: string;             // ISO timestamp
+    provider: string | null;
+    fallback_reason: string | null;
+    detail: string | null;         // Already redacted
+    repository: string | null;     // folder_name at issuance
+    context: string | null;
+  }>;
+  warning?: string;                // Present only when the log is corrupt; `entries` is then the recoverable subset
+}
+```
+
+**Implementation:** `src/tools/error-codes.ts`, delegating to `listTemporaryCodes` (`src/error-codes/temporary-codes.ts`) against `resolveErrorCodesDir()` (`src/storage/store-registry.ts`).
+
+---
+
 ### Help & Documentation Tools
 
 #### `ledger_help`
@@ -2184,10 +2251,36 @@ type DetectProjectResult =
 ### `atomicWriteJson()`
 
 ```typescript
-function atomicWriteJson(filePath: string, data: unknown): Promise<void>;
+interface AtomicWriteJsonOptions {
+  mode?: number;   // POSIX file mode, e.g. 0o600; a documented no-op on Windows
+}
+
+function atomicWriteJson(
+  filePath: string,
+  data: unknown,
+  options?: AtomicWriteJsonOptions
+): Promise<void>;
 ```
 
 Writes JSON data to a file atomically using the write-to-temp-then-rename pattern. Ensures directory exists, pretty-prints JSON with 2-space indentation and trailing newline.
+
+`options.mode`, when supplied, is passed directly to `fs.writeFile`'s own `mode` option at temp-file creation time (not applied via a separate `fs.chmod` call afterward), so the temp file is never briefly world-readable at default permissions between the write and the rename — the OS applies the mode atomically via the underlying `open()` flags. On Windows, the `mode` bits passed to `fs.writeFile` only toggle the read-only attribute, so this is a documented no-op there — callers that need a restrictive mode (e.g. the error-code allocator's `config.json`, which holds provider secrets, written with `{ mode: 0o600 }`) get it on POSIX and silently get the platform default elsewhere.
+
+---
+
+### `readJsonStateFile()` / `keepCorruptCopy()` — `src/storage/json-state-file.ts`
+
+```typescript
+type JsonStateRead =
+  | { status: 'missing' }
+  | { status: 'parsed'; raw: string; value: unknown }
+  | { status: 'unparsable'; raw: string; error: string };
+
+function readJsonStateFile(path: string): Promise<JsonStateRead>;
+function keepCorruptCopy(path: string, now?: Date): Promise<string>;  // returns the copy's base name
+```
+
+The shared read primitive of the error-code state files (the `file` provider's counter file, `temporary-codes.json`, `config.json`). It enforces *a missing file is not a broken file*: `ENOENT` alone is `missing`; a read file is `parsed` or `unparsable` (schema validation stays with the caller); every other I/O error is rethrown unchanged with its `code`. Each store keeps its own corruption policy — see "Error-Code State Files Distinguish Missing From Broken" in `constraints.md`. `keepCorruptCopy` copies (never renames) the file to `{name}.corrupt-{YYYYMMDDTHHMMSSZ}{ext}` in the same directory with an exclusive copy (an existing file is never overwritten; a collision appends `-2`, `-3`, …); the stamp has no `:`, so the name is valid on Windows. The caller replaces the original with `atomicWriteJson`, so the path is never absent.
 
 ---
 
@@ -2195,9 +2288,16 @@ Writes JSON data to a file atomically using the write-to-temp-then-rename patter
 
 ```typescript
 function withLock<T>(storageDir: string, fn: () => Promise<T>): Promise<T>;
+
+const DEFAULT_LOCK_OPTIONS: Readonly<{ stale: 10000; retries: Readonly<{ retries: 50; minTimeout: 200; maxTimeout: 1000 }> }>; // deep-frozen
+
+function __setLockRetryForTesting(options: { minTimeout: number; maxTimeout: number }): void;  // @internal, test-only
+function __resetLockOptionsForTesting(): void;                                                  // @internal, test-only
 ```
 
-Acquires a file lock on the project's centralized storage directory, executes the callback, and releases the lock in a `finally` block. Lock file created at `{storageDir}/.lock`.
+Acquires a file lock on the project's centralized storage directory, executes the callback, and releases the lock in a `finally` block. Lock file created at `{storageDir}/.lock`. `withLock` reads its retry policy from a module-level `activeLockOptions`, initialised from `DEFAULT_LOCK_OPTIONS` and always replaced wholesale (never mutated in place) so the frozen default stays frozen.
+
+**Test-only retry seam:** `__setLockRetryForTesting({ minTimeout, maxTimeout })` swaps `activeLockOptions` to a faster policy — it derives `retries = Math.ceil(DEFAULT_LOCK_OPTIONS.stale / minTimeout)` so the retry window never drops below the 10s stale timeout, and rejects `minTimeout < 1` or `maxTimeout < minTimeout`. `__resetLockOptionsForTesting()` restores the exact defaults. Both are `@internal`/test-only; no production code path calls either. See "Slow Lock-Contention Tests Use the `withLock` Fast-Lock Test Seam" in `constraints-testing.md` for the adoption pattern used by the error-code concurrency tests.
 
 ---
 
@@ -2554,6 +2654,39 @@ function expandStorePath(pathStr: string): string;
  */
 function resolveGuiConfigPath(storeConfig: StoresConfig | null, ledgerRoot: string): string;
 
+/**
+ * Returns the absolute path of the error-code allocator's user-level state
+ * directory: ~/.ai-insights/error-codes/
+ *
+ * Holds config.json (active provider, timeouts, retry policy, per-provider
+ * settings), temporary-codes.json (the logged fallback-code history), and
+ * per-provider data/{provider-id}/ directories.
+ */
+function resolveErrorCodesDir(): string;
+
+/**
+ * Returns the absolute path of the directory scanned for third-party
+ * error-code provider plugins: ~/.ai-insights/plugins/error-codes/
+ *
+ * Each entry is either a *.mjs/*.js file whose default export is an
+ * ErrorCodeProvider, or a folder carrying its own package.json and
+ * dependencies (see the Error-Code Provider Contract section below).
+ */
+function resolveErrorCodePluginDir(): string;
+
+/**
+ * Returns the absolute path of a single error-code provider's data
+ * directory: join(resolveErrorCodesDir(), 'data', providerId).
+ *
+ * The single source of this path (WP-004, PR#64 rework) — both the
+ * allocator (src/error-codes/allocator.ts) and the GUI's provider
+ * Test-connection route (gui/api-error-codes.ts) call this helper rather
+ * than building the path themselves, which previously let a forward-slash
+ * template-string copy in the allocator diverge from the GUI's own
+ * path.join-based copy on Windows.
+ */
+function resolveErrorCodeProviderDataDir(providerId: string): string;
+
 // ── I/O ────────────────────────────────────────────────────────────────────
 
 /**
@@ -2862,6 +2995,329 @@ One-shot startup migration: scans `ledgerRoot` for depth-1 directories that cont
 **Startup wiring:** Called from `src/index.ts` after `mkdirSync(ledgerRoot)` and before `readConfigFromDisk()`, wrapped in `try/catch` to prevent fatal startup failures.
 
 **`withLock` constraint:** Never calls `withLock(ledgerRoot)`. Race safety relies on the sentinel file and startup sequencing (no tool-call handlers are reachable during migration).
+
+---
+
+## Error-Code Provider Contract
+
+`src/error-codes/` holds the pluggable error-code allocator introduced for `ledger_generate_error_code`. This section is the single documentation home for every module under `src/error-codes/` as each lands, built-in providers (`providers/`) included; the MCP tools that call `allocateErrorCode()` are documented in their own WPs' manifest updates.
+
+### `provider-api.ts`
+
+The provider contract itself — pure types and constants, no runtime logic (so it carries no dedicated unit test; `provider-validation.test.ts` and the built-in provider tests exercise it indirectly). This is the only module a provider depends on, conceptually: plugins are plain ESM and import nothing from the server, and the types below are the documentation handed to plugin authors.
+
+```typescript
+const PROVIDER_API_VERSION = 1;
+const SUPPORTED_PROVIDER_API_VERSIONS: readonly number[]; // = [1]
+
+interface ErrorCodeProvider {
+  apiVersion: 1;
+  id: string;                 // /^[a-z][a-z0-9-]{1,47}$/, unique
+  label: string;
+  description?: string;
+  settings: SettingField[];   // declarative; drives validation, the GUI form, and secret handling
+  allocate(request: AllocationRequest, ctx: ProviderContext): Promise<AllocationOutcome>;
+  // Optional hooks. Presence IS the capability — no separate capability flag.
+  peek?(request: AllocationRequest, ctx: ProviderContext): Promise<AllocationOutcome>;
+  test?(ctx: ProviderContext): Promise<TestOutcome>;  // core falls back to peek when absent
+}
+
+type SettingField =
+  | { key: string; label: string; type: 'string' | 'url' | 'path'; required?: boolean; default?: string; description?: string; placeholder?: string }
+  | { key: string; label: string; type: 'secret'; required?: boolean; description?: string }
+  | { key: string; label: string; type: 'integer'; required?: boolean; default?: number; min?: number; max?: number; description?: string }
+  | { key: string; label: string; type: 'boolean'; default?: boolean; description?: string }
+  | { key: string; label: string; type: 'select'; options: { value: string; label: string }[]; default?: string; description?: string };
+
+interface AllocationRequest {
+  request_id: string;             // uuid, for provider-side logging/idempotency only
+  cwd_path: string | null;
+  repository: RepositoryInfo | null;
+  context: string | null;
+}
+
+// root_path/folder_name identify the MAIN repository root — every linked
+// worktree of one repository resolves to the same values.
+interface RepositoryInfo { root_path: string; folder_name: string; package_name: string | null; }
+
+interface ProviderContext {
+  settings: Readonly<Record<string, unknown>>;  // validated against the provider's `settings`, secrets included
+  signal: AbortSignal;             // core-owned allocation timeout
+  data_dir: string;                // ~/.ai-insights/error-codes/data/{provider-id}/, created on demand
+  log: { info(msg: string): void; warn(msg: string): void };  // stderr-only, secrets redacted
+}
+
+type AllocationOutcome =
+  | { ok: true; value: number }
+  | { ok: false; reason: FailureReason; ambiguous?: boolean; retry_after_ms?: number; detail?: string };
+
+type FailureReason = 'throttled' | 'misconfigured' | 'unavailable' | 'rejected' | 'invalid_response' | 'failed';
+type TestOutcome = { ok: true; detail?: string; value?: number } | { ok: false; reason: FailureReason; detail?: string };
+```
+
+**Stability rules** (`apiVersion: 1`), restated from the module's own JSDoc — read it there for the authoritative version:
+- Every change within `apiVersion: 1` is additive: new optional request fields, context members, provider hooks, and setting-field types.
+- An optional hook is detected by its presence (`typeof provider.peek === 'function'`) — no `capabilities` flag, no `ctx.api_version`.
+- Providers must ignore unknown request/context fields. The core treats unknown outcome `reason`s as `failed` and ignores unknown provider properties.
+- A breaking change requires `apiVersion: 2`; `SUPPORTED_PROVIDER_API_VERSIONS` lists what the core currently accepts.
+
+### `provider-validation.ts`
+
+```typescript
+interface ProviderValidationSuccess { ok: true; provider: ErrorCodeProvider; }
+interface ProviderValidationFailure { ok: false; errors: string[]; }
+type ProviderValidationResult = ProviderValidationSuccess | ProviderValidationFailure;
+
+function validateProvider(candidate: unknown): ProviderValidationResult;
+```
+
+A Zod-backed runtime check of a candidate provider object — used uniformly for built-in and plugin-loaded providers. Never throws. Rejects: an unsupported `apiVersion`; an `id` that fails the pattern; a missing/empty `label`; a missing `allocate`; a malformed `settings` array (unknown `type`, missing `options` for `select`, an `integer`'s `min` greater than its `max`, or a duplicate `key` across entries — the one rule a per-element schema cannot express, checked via `z.discriminatedUnion(...).superRefine(...)`); and a `peek`/`test` that is present but not a function. On success, returns the original candidate object, typed as `ErrorCodeProvider`.
+
+### `settings-schema.ts`
+
+```typescript
+function buildSettingsSchema(fields: readonly SettingField[]): z.ZodObject<Record<string, z.ZodTypeAny>>;
+
+function toPublicSettings(
+  fields: readonly SettingField[],
+  values: Readonly<Record<string, unknown>>
+): Record<string, unknown>;
+
+function mergeSettingsUpdate(
+  fields: readonly SettingField[],
+  stored: Readonly<Record<string, unknown>>,
+  incoming: Readonly<Record<string, unknown>>,
+  clearKeys?: readonly string[]
+): Record<string, unknown>;
+
+interface MergeSettingsForTestResult {
+  settings: Record<string, unknown>;
+  secrets_merged: boolean;
+}
+function mergeSettingsForTest(
+  fields: readonly SettingField[],
+  stored: Readonly<Record<string, unknown>>,
+  incoming: Readonly<Record<string, unknown>>
+): MergeSettingsForTestResult;
+
+function collectSecrets(
+  fields: readonly SettingField[],
+  values: Readonly<Record<string, unknown>>
+): string[];
+```
+
+One descriptor array (`SettingField[]`) drives every function here:
+
+- **`buildSettingsSchema`** — `integer` respects `min`/`max`; `select` must be one of its declared `options`; a field's `default` is applied by Zod when the value is absent. The `url` type enforces a scheme rule in the core (not behind a per-descriptor flag, so a plugin author cannot weaken it): `https://` is always accepted; `http://` is accepted **only** for a loopback host (`localhost`, `127.0.0.1`, `[::1]` — `URL#hostname` keeps the brackets on the IPv6 literal). Every other scheme, and every other `http://` host, is rejected.
+- **`toPublicSettings`** — renders every `secret` field as `{ set: boolean } ` (never the raw value); every other field passes through unchanged. Feeds the GUI's `GET /api/error-codes/config` response.
+- **`mergeSettingsUpdate`** — the save-time merge. A secret field left absent or empty in `incoming` keeps the stored value, so the GUI never has to resend a password to save an unrelated field; a key listed in `clearKeys` is forced to `''` regardless of `incoming`, which is the only way to clear a stored secret. Non-secret fields apply the incoming value when the key is present in `incoming`, otherwise keep the stored one.
+- **`mergeSettingsForTest`** — the fail-closed merge behind the GUI's "Test connection" flow. Stored secrets are merged into `incoming` **only when every non-secret field** — of any type, not only `url` — **equals its stored value**, after each field's `default` is applied to both sides via an internal, lenient `applyDefaults` helper (never throws, never enforces `required`, since this is a pure comparison over possibly-partial objects). Any other difference means the result carries the incoming secrets only. Pure and synchronous: the rule is unit-tested without ever making an HTTP call. Value comparison uses `===`, which is correct because every current `SettingField` value type is a primitive (string, number, boolean) — a future structured setting type would need a deep-equal here instead.
+- **`collectSecrets`** — returns every non-empty secret value present in `values`, feeding `redact()`/`createRedactingLogger()` (see below). Kept here, alongside the descriptors it reads, rather than in `redact.ts`.
+
+### `redact.ts`
+
+```typescript
+function redact(text: string, secrets: readonly string[]): string;
+
+interface RedactingLogger { info(msg: string): void; warn(msg: string): void; }
+function createRedactingLogger(prefix: string, secrets: readonly string[]): RedactingLogger;
+```
+
+The single owner of secret redaction for the error-code allocator — plain functions, no state. Lives in its own module (not inside `settings-schema.ts`) because the plugin loader and provider registry need to redact log/error text without needing Zod or the descriptor logic.
+
+- **`redact`** — replaces every occurrence of each non-empty secret in `text` with `[REDACTED]`. Secrets are matched **literally**: any regex metacharacters they contain are escaped first. Secrets are replaced **longest-first**, so a secret that is a substring of another is never partially exposed by the shorter match running first. Empty or whitespace-only secrets are ignored, so an unset settings field cannot blank out unrelated text.
+- **`createRedactingLogger`** — returns the `{ info, warn }` logger handed to providers as `ctx.log`, and used internally by the allocator, registry and loader. Writes `[{prefix}] {message}` to **stderr only** (never stdout, keeping the MCP JSON-RPC stream on stdout clean), passing every message through `redact` first.
+
+### `config-store.ts`
+
+```typescript
+const TEMPORARY_PREFIX_PATTERN: RegExp;        // /^[1-9][0-9]{0,5}$/ — 1–6 digits, no leading zero
+const DEFAULT_TEMPORARY_PREFIX: string;        // '777'
+const TemporaryPrefixSchema: z.ZodString;      // the pattern above, with the user-facing message; shared by the config schema and the GUI's PUT body schema
+const ErrorCodeConfigSchema: z.ZodType<ErrorCodeConfig>; // version, active_provider, temporary_prefix, timeout_ms, retry: { default_wait_ms, max_wait_ms }, providers: Record<string, Record<string, unknown>>
+type ErrorCodeConfig = z.infer<typeof ErrorCodeConfigSchema>;
+
+function readErrorCodeConfig(): Promise<{ config: ErrorCodeConfig; warning?: string }>;
+function loadErrorCodeConfig(): Promise<ErrorCodeConfig>;
+function updateErrorCodeConfig(mutator: (current: ErrorCodeConfig) => ErrorCodeConfig): Promise<ErrorCodeConfig>;
+```
+
+Owns `~/.ai-insights/error-codes/config.json`.
+
+- **`readErrorCodeConfig()`** — the shared classification read, built on an internal `readConfigState()` helper (`missing | ok | salvaged | corrupt | unreadable`); the one read path both `loadErrorCodeConfig()` and the GUI's config route use, so they can never disagree about what counts as usable. Never throws: a missing file yields the documented defaults (`active_provider: 'file'`, `temporary_prefix: '777'`) with no `warning`; a valid file also has no `warning`; a salvaged file (some invalid fields) returns the defaults for just those fields — every other field, `providers` and its stored secrets included, is kept — plus a `warning` naming the invalid field paths only, never a value; a corrupt or unreadable file returns the defaults plus a `warning` carrying the same fixed, already-sanitized classification reason `readConfigState()` produced, never the raw JSON-parser message (which would quote file content holding secrets).
+- **`loadErrorCodeConfig()`** — a thin wrapper over `readErrorCodeConfig()`: re-reads the file on every call (no cache, no watcher, so the MCP server process and the GUI server process always observe the latest saved settings without coordinating invalidation), writes any `warning` to stderr as `[error-codes] {warning}`, and returns just the `config`. Its signature, return value and stderr output are unchanged from before `readErrorCodeConfig()` existed, for every config state.
+- **GUI surfacing** — `handleGetErrorCodeConfig` (`gui/api-error-codes.ts`) calls `readErrorCodeConfig()` directly instead, so the GUI's Error Codes tab can surface the same `warning` as a banner instead of only to a stderr stream the GET route's caller never sees. See the GUI manifest's `ErrorCodeConfigResponse.warning` and `config-error-codes.js`'s `ecConfigWarning`.
+- **Validation asymmetry** — the strict `ErrorCodeConfigSchema` is used on write; reads use a tolerant per-field salvage, so one bad field can no longer wipe the rest.
+- **`providers`** — a free-form `{ [provider-id]: settings }` bag whose values this schema does not validate (a provider's settings shape is runtime-defined, see `settings-schema.ts`); this is also why settings for a currently-uninstalled provider round-trip untouched.
+- **`updateErrorCodeConfig(mutator)`** — the only write path: a read-modify-write under `withLock(resolveErrorCodesDir(), …)` that re-validates the mutator's result before persisting it with `atomicWriteJson(..., { mode: 0o600 })`, so concurrent callers never lose an update and a mutator cannot silently write an invalid shape. It also never overwrites what it could not read: an **unreadable** `config.json` (e.g. `EACCES`) makes it throw without writing; an **unparsable** one is first copied byte-for-byte to `config.corrupt-{stamp}.json` (via `keepCorruptCopy`) and then replaced in one atomic rename, so a concurrent unlocked `loadErrorCodeConfig` never observes the file missing.
+
+### `project-info.ts`
+
+```typescript
+function resolveRepositoryInfo(cwdPath: string): Promise<RepositoryInfo | null>;
+```
+
+Resolves the MAIN repository root for an arbitrary working directory with no `git` subprocess — walks upward from `cwdPath` to the first `.git` entry, following git's own repository-layout convention. A `.git` directory means `cwdPath`'s ancestor is already the main checkout. A `.git` file (a linked worktree or a submodule) is read for its `gitdir:` line and, when that git directory holds a `commondir` file, resolved further to the shared main checkout — so every linked worktree of one repository yields the same `root_path`/`folder_name`, which matters for a provider scoping its sequence by repository (the `file` provider's `scope: 'repository'`). A submodule (no `commondir`) or any read failure along the way falls back to the walked directory rather than throwing. Returns `null` outside any repository. `package_name` comes from the existing `readProjectName()` (`utils/read-project-name.ts`), reused as-is.
+
+### `temporary-codes.ts`
+
+```typescript
+const TemporaryCodeEntrySchema: z.ZodType<TemporaryCodeEntry>; // code, issued_at, provider, fallback_reason, detail, repository, context — all nullable except code/issued_at
+type TemporaryCodeEntry = z.infer<typeof TemporaryCodeEntrySchema>;
+type TemporaryCodeEntryInput = Omit<TemporaryCodeEntry, 'code' | 'issued_at'>;
+
+interface IssuedTemporaryCode { code: string; warning?: string; }                 // warning: the log was corrupt and was recovered
+interface TemporaryCodesListing { entries: TemporaryCodeEntry[]; warning?: string; } // warning: the log is corrupt; entries are the recoverable ones
+
+function issueTemporaryCode(dir: string, prefix: string, entry: TemporaryCodeEntryInput): Promise<IssuedTemporaryCode>;
+function listTemporaryCodes(dir: string, filter?: string): Promise<TemporaryCodesListing>;
+```
+
+Owns `~/.ai-insights/error-codes/temporary-codes.json`, entirely core-side — no provider ever sees or influences this log, which is what makes the fallback guarantee unconditional.
+
+- **`issueTemporaryCode`** — runs its whole read-modify-write under `withLock(dir, …)`; the returned code is `prefix + String(n).padStart(6, '0')` with `n` starting at `1` (`{prefix}000000` is reserved as the "tool unavailable" placeholder and is never issued by this module); the persisted file tracks an explicit `next_counter` field — rather than re-deriving "next" from `entries.length` — so a manually edited or truncated log can never reissue a previously-used code. Once `n` would exceed `999999` the counter is exhausted and the function throws instead of wrapping around.
+- **`listTemporaryCodes`** — filters by a case-sensitive substring match against `context` or `repository` (a `null` field never matches a non-empty filter); an absent or empty `filter` returns every entry.
+- **Corruption handling** — the log is the last-resort fallback, so a *missing* file is a new empty log and a file that exists but is corrupt (unparsable, a failing entry, or a `next_counter` at or below a code already logged) is **recovered**, never reset: under the lock, `issueTemporaryCode` keeps a byte-identical copy as `temporary-codes.corrupt-{stamp}.json` (`keepCorruptCopy`), retains every valid entry, continues numbering above every counter still visible in the file (a text scan of the raw `"code"` values, so codes written with a non-digit prefix by an earlier version count too), replaces the original in one atomic write, and returns a `warning`. A second caller that met the same corrupt log waits on the lock and re-reads the repaired file, so recovery runs once.
+- **Read-only path** — `listTemporaryCodes` is read-only and unlocked: on a corrupt log it returns the recoverable entries plus a `warning`, and copies and writes nothing.
+- **Unreadable log** — a log that cannot be *read* at all (`EACCES`, `EISDIR`, …) fails closed: `issueTemporaryCode` rejects with `temporary-codes: cannot read {path} ({code})`.
+
+### `plugin-loader.ts`
+
+```typescript
+interface LoadedPlugin { provider: ErrorCodeProvider; path: string; }
+interface PluginLoadError { source: string; message: string; } // message never carries stack trace text
+interface LoadPluginProvidersResult { providers: LoadedPlugin[]; errors: PluginLoadError[]; }
+
+interface LoadPluginProvidersOptions { importTimeoutMs?: number; } // defaults to PLUGIN_IMPORT_TIMEOUT_MS
+const PLUGIN_IMPORT_TIMEOUT_MS = 10_000;
+
+function loadPluginProviders(pluginDir: string, options?: LoadPluginProvidersOptions): Promise<LoadPluginProvidersResult>;
+```
+
+The only place in the server that dynamically imports code discovered at runtime, and it only ever scans one fixed directory: `resolveErrorCodePluginDir()` (`~/.ai-insights/plugins/error-codes/`) — see "Plugins Load Only From the Plugin Directory" (`constraints.md`). Each top-level entry is either a `*.mjs`/`*.js` file (its default export is the provider) or a folder, whose entry module is `package.json`'s `main` field when present, else `index.mjs` — `exports` maps are deliberately not resolved, so a folder with neither is reported as a load error naming the expected entry rather than partially re-implementing Node's resolver. Entries are classified by a private `classifyEntry()` that looks through symbolic links (`stat` follows them): a link to a file or folder loads like its target, reported under the link path, and a dangling link (or link loop) is a load error. Each import is raced against `options.importTimeoutMs` (default `PLUGIN_IMPORT_TIMEOUT_MS`, 10 s, per plugin, unref'd timer cleared in `finally`); a timeout is recorded as `import timed out after {n} ms` and the scan continues (the import itself cannot be cancelled). Modules are imported via `pathToFileURL(path).href` for correctness on Windows as well as POSIX. A syntax error, a thrown error during evaluation, an invalid provider shape, or a plugin `id` clashing with another plugin already loaded from this directory (first-loaded wins by readdir order) is recorded in `errors` and never thrown — one broken plugin never blocks the rest of the scan or server startup. A missing plugin directory yields no providers and no errors (absence is not a failure). This loader knows nothing of built-in providers; a plugin `id` clashing with a built-in is accepted here and resolved by `provider-registry.ts`.
+
+### `provider-registry.ts`
+
+```typescript
+const BUILTIN_PROVIDERS: ErrorCodeProvider[]; // in registration order; built-ins always win an id clash over a plugin
+
+interface ProviderRegistryEntry { provider: ErrorCodeProvider; source: 'builtin' | 'plugin'; path?: string; } // path present only for source: 'plugin'
+interface ProviderLoadError { source: string; message: string; }
+
+function initProviderRegistry(options: { pluginDir: string }): Promise<void>;
+function getProvider(id: string): ErrorCodeProvider | undefined;
+function listProviders(): ProviderRegistryEntry[];
+function listProviderLoadErrors(): ProviderLoadError[];
+```
+
+Merges `BUILTIN_PROVIDERS` with every provider `loadPluginProviders()` discovers under `options.pluginDir`, into process-local module state (`registry`/`errors`, a `Map` keyed by provider `id` — not plain-object property access, so an `id` cannot cause prototype pollution). A plugin `id` clashing with a built-in is rejected and recorded as a load error while the built-in keeps working; a plugin-vs-plugin clash is already resolved inside `loadPluginProviders` and never reaches this function. `initProviderRegistry` is safe to call more than once per process — each call replaces the whole registry and error list with a freshly built one rather than accumulating, so the MCP server and the GUI server each calling it once at their own startup never produces duplicates. `getProvider`/`listProviders`/`listProviderLoadErrors` are plain synchronous readers over that state.
+
+### `allocator.ts`
+
+```typescript
+interface AllocateErrorCodeInput {
+  cwd_path: string | null;
+  context: string | null;
+  temporary?: boolean;
+}
+
+type FallbackReason = FailureReason | 'requested';
+
+interface ErrorCodeResult {
+  code: string;                       // digits only, real or temporary
+  temporary: boolean;
+  provider: string | null;            // null only for a `requested`/no-provider-resolved temporary code
+  fallback_reason?: FallbackReason;   // absent for a successful, non-temporary allocation
+  detail?: string;                    // always redacted
+  waited_ms?: number;                 // present only after a throttled retry
+  repository: RepositoryInfo | null;
+  first_component_code: string;       // code + '01'
+  message: string;
+  instruction: string;
+  warning?: string;                   // non-fatal problem to report, e.g. a recovered temporary-code log
+}
+
+interface TemporaryCodesDep {
+  issue(prefix: string, entry: TemporaryCodeEntryInput): Promise<IssuedTemporaryCode>;
+}
+
+interface AllocatorDeps {
+  loadConfig(): Promise<ErrorCodeConfig>;
+  getProvider(id: string): ErrorCodeProvider | undefined;
+  resolveRepositoryInfo(cwdPath: string): Promise<RepositoryInfo | null>;
+  temporaryCodes: TemporaryCodesDep;
+  sleep(ms: number): Promise<void>;
+  now(): number;                      // measures the retry backoff for `waited_ms`, never used for policy
+}
+
+function allocateErrorCode(input: AllocateErrorCodeInput, deps: AllocatorDeps): Promise<ErrorCodeResult>;
+```
+
+The single policy pipeline behind `ledger_generate_error_code`: load config, resolve the repository, call the active provider, validate its outcome, retry once on throttling, and fall back to a temporary code on every other failure. See "Policy Lives in the Allocator, Not in Providers" (`constraints.md`) for why every one of those decisions lives here and nowhere in a provider. `ErrorCodeResult` is exported from this module rather than a separate `types.ts`, matching the config schema living in `config-store.ts` and the temporary-entry schema living in `temporary-codes.ts`.
+
+`deps` is fully injected, so the allocator's own unit tests (`tests/error-codes/allocator.test.ts`) exercise no real file I/O, network call or timer:
+- `temporaryCodes` is a narrow façade over `temporary-codes.ts` — the allocator only ever issues a code through it, never lists the log.
+- `now()` is called immediately before and after the single retry `sleep()`, purely to report the actually-elapsed `waited_ms` — it plays no part in deciding whether to retry or how long to wait.
+- `resolveRepositoryInfo` is called only when `input.cwd_path` is non-null.
+
+- **Never thrown** — a missing/failed-to-load provider, a provider whose stored settings fail `buildSettingsSchema(...).safeParse(...)` validation, a provider that throws, an aborted `allocate` call, or a non-positive/non-safe-integer returned value all fall back to a temporary code instead (`misconfigured`, `failed`, `unavailable`, or `invalid_response` respectively). The only way this function rejects is a failure in the temporary-code store itself (e.g. its counter exhausted), which the MCP tool that calls it turns into an MCP error. An outcome whose `reason` is not one of the six documented `FailureReason` values is normalised to `failed` before the fallback.
+- **Retry** — on `{ ok: false, reason: 'throttled', ambiguous: false|undefined }`, the allocator waits once for `min(retry_after_ms ?? retry.default_wait_ms, retry.max_wait_ms)` and calls `allocate` exactly one more time. A `throttled` outcome marked `ambiguous: true`, and every outcome of any other failing reason, is never retried — it falls straight to a temporary code. A second `throttled` response (after the one retry) also falls back.
+- **Redaction** — a provider's stored settings are validated once per call and their secret values (`collectSecrets`) are reused for both `createRedactingLogger` (handed to the provider as `ctx.log`) and `redact()` on the final `detail` text — so a secret echoed back in a failure's `detail`, or logged by the provider via `ctx.log`, never reaches the caller or stderr unredacted.
+- **`data_dir`** — built via a direct import of `resolveErrorCodeProviderDataDir(provider.id)` (`storage/store-registry.ts`), not an injected dependency, since building the path performs no I/O; only `loadConfig`'s own implementation touches the filesystem. This is the same helper the GUI's provider Test-connection route calls, so both paths always agree.
+
+### `providers/file-provider.ts`
+
+```typescript
+interface FileProviderSettings {
+  scope: 'global' | 'repository';
+  counter_file: string;  // '' means {ctx.data_dir}/counters.json; may contain a {repo} placeholder
+  counter_name: string;  // sequence key used in 'global' scope only
+  start_value: number;
+}
+
+const fileProvider: ErrorCodeProvider; // id 'file', apiVersion 1; allocate + peek, no test()
+```
+
+The zero-setup default provider (`active_provider: 'file'` is the documented config default — see `config-store.ts` above). Keeps one monotonic integer per sequence key inside a JSON counter file (`{ counters: Record<string, number> }`, every value a safe integer >= 0). The file is read **strictly**: only a *missing* file starts a new sequence at `start_value`. A file that exists but cannot be read, parsed or validated makes `allocate` and `peek` return `{ ok: false, reason: 'failed', ambiguous: false, detail: 'counter file {path} … ; no code was issued from it — repair or remove the file' }` and the file is left untouched — restarting the sequence would reissue codes already embedded in source. The allocator turns `failed` into a temporary code, so allocation still succeeds. Counters are held in a `Map` (hand-validated, read with `Object.entries`, written with `Object.fromEntries`), so every string is a valid key — `__proto__`, `constructor`, `toString` included — and no key can resolve to an inherited property; there is no reserved-key policy.
+
+- **Counter file resolution** (`resolveCounterLocation`, not exported) — `counter_file === ''` resolves to `{ctx.data_dir}/counters.json`; a `{repo}` placeholder (detected via `.includes('{repo}')`, checked **before** any `repository` access) expands to `repository.root_path` via a global string replace; any other non-empty value is used verbatim and never touches `repository`, even when `repository` is `null`. `scope: 'repository'`, or a `{repo}` placeholder, with no repository resolved both return `{ ok: false, reason: 'misconfigured', detail: 'no repository found for cwd_path' }` — this exact detail string is a documented contract surface, not an incidental message.
+- **Sequence key** — `repository.folder_name` for `scope: 'repository'` (shared by every linked worktree of one repository, since `project-info.ts` normalises worktrees to the same `folder_name`); `counter_name` for `scope: 'global'`.
+- **`allocate`** — runs the whole read-modify-write (the strict read included) under `withLock(ctx.data_dir, …)`, **never** a lock on the counter file's own directory. `ctx.data_dir` is under the user's home directory, so every process of one user (both MCP servers, the GUI, parallel workflow runs) resolves the same one and all of them serialise on a single lock. The `.lock` directory exists only while an allocation holds it (left behind only by a hard kill, then reclaimed as stale after 10 s); locking `data_dir` keeps even that transient entry out of a `{repo}/…` directory. **A counter file shared between different users or machines is not protected by this lock and is not supported.** Writes via `atomicWriteJson`.
+- **`peek`** — read-only; returns the value the *next* `allocate()` call would issue (`current ?? start_value - 1, then +1`), without acquiring the lock or writing anything, so it agrees with `allocate` on what "the current value" means even for a sequence never allocated from. Safe without the lock: `atomicWriteJson` renames a complete temp file into place, so it sees the old or the new file, never a partial one. A corrupt counter file gives the same `failed` outcome as `allocate`.
+- **Settings** (`FILE_PROVIDER_SETTINGS`, inline in the provider object, not a separate exported constant): `scope` (`select`, default `'global'`), `counter_file` (`path`, default `''`), `counter_name` (`string`, default `'default'`), `start_value` (`integer`, default `1`, `min: 1`).
+
+### `providers/errorcode-incrementor-provider.ts`
+
+```typescript
+interface ErrorcodeIncrementorSettings {
+  base_url: string;    // url, required, no default
+  password: string;    // secret, required
+  counter: string;     // string, required
+  response_suffix: string; // default '01'
+  throttle_delay_ms: number; // default 10000
+}
+
+const errorcodeIncrementorProvider: ErrorCodeProvider; // id 'errorcode-incrementor', label "Errorcode Incrementor (HTTP)", apiVersion 1; allocate + peek, no test()
+```
+
+A driver for the user's own self-hosted instance of the public, MIT-licensed Errorcode Incrementor counter service — the host and credentials are private settings, never checked into this repository (`tests/error-codes/no-private-config.test.ts` mechanically enforces this). Uses Node's global `fetch` and the core-supplied `ctx.signal` directly; no HTTP client dependency (see `tech-stack.md`).
+
+- **Request shape** — both `allocate` and `peek` build `GET {base_url}?pw={password}&counter={counter}[&increment=yes]` exclusively via `URL`/`URLSearchParams`, which percent-encodes every value; `allocate` sets `increment=yes`, `peek` *deletes* any `increment` parameter (a saved `base_url` already containing `increment=yes` would otherwise make `peek` — and the GUI's Test connection — consume a code). The provider owns `pw`, `counter` and `increment`: whatever `base_url` carries for them is always overridden. The response body is trimmed, matched against the configured `response_suffix` (stripped from the end), and parsed as a `Number.isSafeInteger` digit string; a non-matching shape maps to `invalid_response` rather than throwing.
+- **Status/error mapping** (`mapStatusToOutcome`) — `400`/`401`/`404` → `misconfigured`; `403` → `throttled` with `retry_after_ms = throttle_delay_ms + 1000`; `500` → `unavailable`, `ambiguous: true`; any other HTTP status → `rejected`; an aborted request (`ctx.signal`) → `unavailable`, `ambiguous: true`; a DNS failure or connection refusal (`err.cause.code` of `ENOTFOUND`/`ECONNREFUSED`/`EAI_AGAIN`, the only signal Node's `fetch` rejection exposes for "never reached a server") → `unavailable`, `ambiguous: false`; any other network error → `unavailable`, `ambiguous: true`.
+- **Secrets** — `password` is never logged or echoed; the provider calls neither `ctx.log` nor `console`, and the allocator's own `redact()`/`createRedactingLogger()` layer (see `allocator.ts` above) additionally guards any `detail` text that reaches the caller.
+- **Settings**: `base_url` (`url`, required, **no default** — the absence of a default is itself part of the no-private-config guarantee), `password` (`secret`, required), `counter` (`string`, required), `response_suffix` (`string`, default `'01'`), `throttle_delay_ms` (`integer`, default `10000`).
+
+### `../../tests/error-codes/provider-contract.ts` — shared provider test helper
+
+```typescript
+function describeProviderContract(
+  name: string,
+  makeProvider: () => ErrorCodeProvider,
+  makeCtx: (overrides?: Partial<ProviderContext>) => ProviderContext
+): void;
+```
+
+A `describe`-block factory (Vitest), not a production module — lives under `tests/`, not `src/`, but documented here because every current and future provider's test file is expected to call it (see "New Error-Code Providers Must Pass `describeProviderContract`" in `constraints-testing.md`). Exercises, against any `ErrorCodeProvider`: well-formed `settings`, a positive-integer `allocate` result, a monotonically increasing sequence across repeated calls, tolerance of unknown `AllocationRequest` fields, and settling (not hanging) when `makeCtx` is given an already-aborted `signal`. `makeProvider` must return a fresh instance per call so one test's state never leaks into another's; `makeCtx` must accept the `Partial<ProviderContext>` override the abort-handling check relies on. Consumed by `file-provider.test.ts` and `errorcode-incrementor-provider.test.ts`.
 
 ---
 
@@ -4113,6 +4569,24 @@ async function resolveMultiStoreLedgerRoot(
 ): Promise<string | undefined>;
 ```
 
+### Node Error Guards — `src/utils/node-errors.ts`
+
+Consolidates the `isNodeError` type guard that previously existed as five identical (or near-identical) private copies across the storage and GUI modules, plus a `hasErrorCode` helper for the `isNodeError(err) && err.code === 'X'` idiom that recurred at every one of those call sites. Where the private copies differed, the strictest check was kept: some only tested `'code' in err` (true even when `code` holds a non-string value); this shared guard always requires `code` to be a `string`.
+
+```typescript
+// Exported from src/utils/node-errors.ts
+
+// Narrows err to NodeJS.ErrnoException when it is an Error instance
+// carrying a string `code` property (e.g. 'ENOENT', 'ENOTDIR').
+function isNodeError(err: unknown): err is NodeJS.ErrnoException;
+
+// Tests whether err is a Node.js error carrying the exact given code.
+// Equivalent to isNodeError(err) && err.code === code.
+function hasErrorCode(err: unknown, code: string): boolean;
+```
+
+Consumers: `src/storage/json-state-file.ts`, `src/gui/config.ts`, `src/gui/log-resolver.ts`, `src/gui/model-registry.ts` — each previously held its own private copy of the `isNodeError` check.
+
 ---
 
 ## Internal Testing Utilities
@@ -4957,12 +5431,39 @@ async function resolveProjectStore(
 ```
 
 ```typescript
+// Tracks every in-flight fire-and-forget self-heal write issued by handleGetProject (see below).
+// Production code never awaits these writes — they stay fire-and-forget so no request pays extra
+// lock latency on every project view. Each write's promise is added on start and removed in a
+// `finally` regardless of outcome, so the set never grows unbounded.
+const pendingSelfHeals: Set<Promise<void>>;
+
+// Test-only hook: resolves once every write currently tracked in pendingSelfHeals has settled.
+// Used by afterEach teardown hooks (tests/gui/api.test.ts, tests/gui/multi-store-api.test.ts) to
+// await a self-heal write's completion before removing the temp directory, instead of sleeping for
+// an arbitrary duration — see "Fire-and-Forget Self-Heal Writes Use the `pendingSelfHeals` Test
+// Seam" in constraints-testing.md.
+// @internal Test-only. Not part of the public API surface.
+export async function __awaitPendingSelfHealsForTesting(): Promise<void>;
+
 // Error type used by all handlers
 export class ApiError extends Error {
   code: string;       // 'NOT_FOUND' | 'FORBIDDEN' | 'VALIDATION_ERROR'
   message: string;
-  details?: unknown;
+  details?: unknown;  // server-side only — gui/server.ts's sendError() never serializes this onto the wire
 }
+
+// Summarizes a Zod safeParse() failure's issues array into a single, human-readable string for an
+// ApiError's message — never `details` (see above). Describes only the first issue, plus an
+// "(and N more)" suffix when more are present; path segments are joined with '.', an empty path
+// (the request body itself) renders as options.rootLabel ?? 'body'. `invalid_enum_value`,
+// `invalid_literal`, and `invalid_union_discriminator` get a fixed, value-free message instead of
+// Zod's default (which quotes the received value) — a rejected field may hold a secret. Wired into
+// all seven GUI validation call sites (gui/api-error-codes.ts x4, gui/api.ts x3) so a rejected
+// request's message names the failing field without ever echoing what was received.
+export function describeZodIssues(
+  issues: readonly ZodIssue[],
+  options?: { rootLabel?: string }  // rootLabel defaults to 'body'
+): string;
 
 // Enriched project summary — extends ProjectMeta with WP counters, resolved project name, and repository name.
 // Returned inside ProjectListEnvelope.projects. Fields default to 0 / null on per-project read failure so one
@@ -7051,6 +7552,27 @@ Each tool module exports:
 function register(server: McpServer): void;
 ```
 
+### `src/tools/registry.ts`
+
+```typescript
+interface ToolModuleEntry {
+  id: string;              // short label for debugging TOOL_MODULES itself — not an MCP tool name
+  register(server: McpServer): void;
+}
+
+const TOOL_MODULES: readonly ToolModuleEntry[];
+
+function registerAllTools(server: McpServer): string[];
+```
+
+The single derived source of truth for "which tool modules does this server register", replacing three previously hand-maintained lists: `src/index.ts`'s per-module registration calls and its startup log literal, and `tests/tools/schema-integrity.test.ts`'s hand-written import list (which had already drifted — it omitted `ping.ts` and `standalone-import.ts`).
+
+`TOOL_MODULES` lists every tool module's `register` function, one entry per module file. `help-content.ts` is excluded: it is data-only (`TOOL_HELP`) and exports no `register`. `workflow.ts` is one entry covering two source files (`workflow-next-action.ts`, `workflow-handoff.ts`) that each contain their own `server.registerTool(` call — `workflow.ts` only delegates to both; `tests/tools/tool-registry.test.ts` verifies completeness by scanning source directly, so this delegation does not require a 1:1 file-to-entry mapping.
+
+`registerAllTools(server)` calls every `TOOL_MODULES` entry's `register(server)` and returns the full, duplicate-free list of MCP tool names that were registered, in registration order. It captures the names by temporarily wrapping `server.registerTool` for the duration of the call (then restoring the original) rather than requiring each tool module to separately report what it registered — `McpServer` exposes no public API to list registered tools afterward (`_registeredTools` is private). `src/index.ts` registers through this function and derives its startup log from the returned names, so the log can no longer drift from the real tool set.
+
+`tests/tools/schema-integrity.test.ts` iterates `TOOL_MODULES` to build its captured-schema map, so a newly added tool module is covered automatically. `tests/tools/tool-registry.test.ts` (replacing the removed `tests/startup/tool-log-sync.test.ts`) asserts: every `server.registerTool(` call found by scanning `src/tools/*.ts` directly is registered by `TOOL_MODULES`; `registerAllTools` returns no duplicate names and restores the original `registerTool` method afterward; and every registered name has a `TOOL_HELP` entry containing `# {name}`.
+
 These are called in `src/index.ts` to register all tools on the server instance.
 
 ```
@@ -7086,6 +7608,7 @@ All routes are prefixed with `/api`. Response envelope on success: raw JSON valu
 | `VALIDATION_ERROR` | 400 |
 | `CONFLICT` | 409 |
 | `PAYLOAD_TOO_LARGE` | 413 |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 |
 | *(unhandled)* | 500 |
 
 ---
@@ -7398,6 +7921,65 @@ Body: `{ order: string[] }` — must contain exactly the current store IDs, no d
 
 ---
 
+### 1.9 Error Codes
+
+All handlers live in `gui/api-error-codes.ts`. Every route carries the `requireLoopbackRequest` guard (`gui/route-guards.ts`); the two body-carrying routes additionally carry `requireJsonContentType`. These routes reach third-party provider plugin code and the user's own stored secrets — see `constraints.md` → §7 "Request-Level Guards — Loopback-Only, JSON-Only, Fail-Closed Secret Merge" for why they are guarded rather than relying on the response-only CORS header the rest of the server sends. `GET /api/error-codes/providers` and `GET /api/error-codes/config` are safe to poll; `POST /api/error-codes/test` never calls a provider's `allocate`.
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `GET` | `/api/error-codes/providers` | `handleListErrorCodeProviders` | Lists every registered provider (built-in and plugin), the scanned plugin directory, and any plugin load errors. |
+| `GET` | `/api/error-codes/config` | `handleGetErrorCodeConfig` | The allocator's config, with every secret masked to `{ set: boolean }`. Uses `readErrorCodeConfig()` (not `loadErrorCodeConfig()`), so a `warning` for a salvaged/corrupt/unreadable `config.json` reaches this response instead of only stderr. |
+| `PUT` | `/api/error-codes/config` | `handleUpdateErrorCodeConfig` | Updates top-level config fields and/or one provider's settings. |
+| `POST` | `/api/error-codes/test` | `handleTestErrorCodeProvider` | Connection-tests a provider's settings without allocating a code. |
+| `GET` | `/api/error-codes/temporary` | `handleListTemporaryErrorCodesGui` | Logged temporary codes, newest-first, capped by `?limit` (default 200). Response `{ entries, warning? }`; `warning` is passed through unchanged when the log is corrupt (the entries are then the recoverable ones). |
+
+#### `ProviderListItem` — `GET /api/error-codes/providers` Response Shape
+
+```typescript
+interface ProviderListItem {
+  id: string;
+  label: string;
+  description?: string;
+  settings: SettingField[];     // descriptors only — never a settings value
+  supports_test: boolean;       // true when the provider offers test or peek
+  source: 'builtin' | 'plugin';
+  path?: string;                // present only for source: 'plugin' — a deliberate, loopback-guarded exception to "no internal paths in responses"
+}
+```
+
+Full response: `{ providers: ProviderListItem[], plugin_dir: string, load_errors: { source: string, message: string }[] }`.
+
+#### `ErrorCodeConfigResponse` — `GET`/`PUT /api/error-codes/config` Response Shape
+
+```typescript
+interface ErrorCodeConfigResponse {
+  active_provider: string;
+  temporary_prefix: string;
+  timeout_ms: number;
+  retry: { default_wait_ms: number; max_wait_ms: number };
+  providers: Record<string, Record<string, unknown>>; // secret fields rendered as { set: boolean }; only currently-registered providers appear
+  warning?: string; // GET only — see below
+}
+```
+
+`PUT` body: `{ active_provider?, temporary_prefix?, timeout_ms?, retry?, provider_id?, settings?, clear_secrets? }` — `temporary_prefix` must match `TemporaryPrefixSchema` (`src/error-codes/config-store.ts`: 1–6 digits, no leading zero); any other value is a `400 VALIDATION_ERROR` whose `error.message` is built by `describeZodIssues()` (`src/gui/errors.ts`) and names the failing field (e.g. `temporary_prefix: …`) plus the schema's own message — `details` (the raw Zod issues, which can carry the received value) never reaches the wire, only `message` does — and nothing is written. `settings`/`clear_secrets` apply only when `provider_id` is present and names a currently-registered provider; an absent/empty secret in `settings` keeps the stored value, a key listed in `clear_secrets` clears it. An uninstalled provider's stored settings are left untouched by any update that does not target its `provider_id`, which is how they survive the round trip — but omitted from the response, since this route has no settings descriptors to mask their secrets safely.
+
+**`warning`** is present only on the `GET` response, and only when `config.json` needed salvage or could not be used as stored (`src/error-codes/config-store.ts`'s `readErrorCodeConfig()`): absent for a missing or valid file; for a salvaged config it names the invalid field paths only (never a value); for a corrupt or unreadable file it is the same fixed, already-sanitized classification reason the server's stderr line would carry (never the raw JSON-parser message, which would quote file content holding secrets). The `PUT` response (`handleUpdateErrorCodeConfig`) never carries a `warning` — a successful save has just written a fully-validated `config.json`, so there is nothing left to salvage — and the Error Codes tab's own save handler relies on this to clear its banner (see `config-error-codes.js`'s `ecConfigWarning` below).
+
+#### `POST /api/error-codes/test` Body and Response
+
+Body: `{ provider_id: string, settings?: Record<string, unknown> }`.
+
+Response: `{ supported: boolean, secrets_merged: boolean, ok?: boolean, reason?: string, detail?: string, value?: number, message?: string }`. `supported: false` (with `message`) when the provider offers neither `test` nor `peek` — `allocate` is never called by this route. `secrets_merged` is `true` only when every non-secret setting field equals its stored value (see `mergeSettingsForTest` in `src/error-codes/settings-schema.ts`) — any other difference tests the incoming settings only, so a changed destination is never tested with a password meant for a different one.
+
+#### `GET /api/error-codes/temporary` Query Parameters
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `limit` | number | 200 | Maximum entries returned, newest-first. Must be a positive integer. |
+
+---
+
 ## 1.X Server-side TypeScript Modules
 
 ### `chunk-accumulator.ts` — Shared accumulation layer
@@ -7474,6 +8056,14 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 Discriminated union of all HTTP methods accepted by the route table. Used as the type of `Route.method`, converting a runtime string check into a compile-time guarantee. The route-table structural test (`tests/gui/route-table.test.ts`) validates method values at runtime as defense-in-depth alongside the compile-time union.
 
+#### `RouteGuard`
+
+```typescript
+export type RouteGuard = (req: IncomingMessage, port: number) => void;
+```
+
+A request-level check `dispatchRoute` runs, in `Route.guards` array order, after the route matches and before `readJsonBody`. Throws `ApiError` to reject the request — `dispatchRoute`'s existing `ApiError` handling maps it to a status code and error body exactly as it would for a handler-thrown error. Implemented by `requireLoopbackRequest` and `requireJsonContentType` in `gui/route-guards.ts`.
+
 #### `Route` (interface)
 
 A declarative route entry for `buildRoutes()` and `dispatchRoute()`.
@@ -7485,16 +8075,25 @@ A declarative route entry for `buildRoutes()` and `dispatchRoute()`.
 | `handler` | `(body: unknown, groups?: Record<string, string>, query?: URLSearchParams) => Promise<unknown>` | ✓ | Called with the parsed body (or `undefined` when `noBody` is set), named capture groups, and query parameters. |
 | `statusCode` | `number` | — | Response status code (default `200`). Use `204` for empty responses. |
 | `noBody` | `boolean` | — | When `true`, skip `readJsonBody()`. Use for GET routes and body-free mutations. |
+| `guards` | `readonly RouteGuard[]` | — | Run in array order after the route matches and before `readJsonBody`. A route with no `guards` behaves exactly as before this field existed. |
 
 ### Exported Functions
 
 #### `buildRoutes(ledgerRoot, configPath, orchestratorLogsDir, bootVersions): Route[]`
 
-Builds the declarative route table consumed by `dispatchRoute()`. **Delegates to six non-exported domain sub-builders** (`buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildProjectRoutes`) composed via spread — each sub-builder receives only the closure variables its handlers require. Routes are organized into Section A (body-parsing), Section B (keyword-specific body-free, `noBody: true`), Section C (catch-all body-free, `noBody: true`). Section B must precede Section C (load-bearing ordering — see constraint §9).
+Builds the declarative route table consumed by `dispatchRoute()`. **Delegates to eight non-exported domain sub-builders** (`buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildStoreRoutes`, `buildErrorCodeRoutes`, `buildProjectRoutes`) composed via spread — each sub-builder receives only the closure variables its handlers require. Routes are organized into Section A (body-parsing), Section B (keyword-specific body-free, `noBody: true`), Section C (catch-all body-free, `noBody: true`). Section B must precede Section C (load-bearing ordering — see constraint §9). `buildErrorCodeRoutes()` takes no arguments — its handlers operate on the user-level `~/.ai-insights/error-codes/` directory, not on any ledger root or project path.
 
 #### `getRouteDescriptors(): Route[]`
 
 Zero-argument factory for structural testing. Calls `buildRoutes('/dev/null', '/dev/null', '/dev/null', null)` with sentinel arguments so tests can inspect the route table structure without requiring real filesystem paths. Use this in test code instead of calling `buildRoutes()` directly with dummy constants.
+
+---
+
+## 1.Y Server-side TypeScript Exports (`gui/api.ts`)
+
+### `__awaitPendingSelfHealsForTesting(): Promise<void>`
+
+Test-only hook. `handleGetProject` never awaits its own fire-and-forget `.meta.json` cache-refresh self-heal write — doing so would add lock latency to every production project-detail request — so each write's promise is tracked in a module-level `pendingSelfHeals: Set<Promise<void>>` (added on start, removed in `finally` regardless of outcome). `__awaitPendingSelfHealsForTesting()` resolves once every currently-tracked write has settled, giving a test a deterministic point to wait for before tearing down a temp directory the write may still target, instead of a fixed-duration sleep. See "Fire-and-Forget Self-Heal Writes Use the `pendingSelfHeals` Test Seam" in the MCP server's `constraints-testing.md`.
 
 ---
 
@@ -7543,6 +8142,11 @@ Client-side REST API wrapper. All methods return Promises. All methods can rejec
 | `rebuildPersonas` | `() → Promise<object>` | `POST /api/personas/rebuild` |
 | `getInsights` | `() → Promise<object[]>` | `GET /api/insights` |
 | `getServerInfo` | `() → Promise<object>` | `GET /api/server-info` |
+| `getErrorCodeProviders` | `() → Promise<{ providers: object[], plugin_dir: string, load_errors: object[] }>` | `GET /api/error-codes/providers` |
+| `getErrorCodeConfig` | `() → Promise<object>` | `GET /api/error-codes/config` |
+| `updateErrorCodeConfig` | `(data: object) → Promise<object>` | `PUT /api/error-codes/config` |
+| `testErrorCodeProvider` | `(providerId: string, settings?: object) → Promise<object>` | `POST /api/error-codes/test` |
+| `getTemporaryErrorCodes` | `(limit?: number) → Promise<{ entries: object[], warning?: string }>` | `GET /api/error-codes/temporary` |
 | `orchestratorStart` | `(planPath, dryRun, resumeThreadId?) → Promise<object>` | `POST /api/orchestrator/start` |
 | `orchestratorGetQueue` | `() → Promise<object>` | `GET /api/orchestrator/queue` |
 | `orchestratorGetRunStatus` | `(slug) → Promise<object>` | `GET /api/orchestrator/run-status/:filename` |
@@ -7640,17 +8244,19 @@ Each view file exposes a global function called by `Router.dispatch()`:
 | `renderConfig` | `config.js` | `#/config` |
 | `renderKnowledge` | `knowledge.js` | `#/knowledge` |
 
+The Configuration view's Error Codes tab (`config-error-codes.js`) has no hash route of its own — it is a tab within `#/config`, entered via `renderConfigTabContent()`'s dispatcher (see below).
+
 #### `config.js` — Internal Functions
 
-`renderConfig` is the router entry point; it delegates to a set of named internal functions. The Configuration view has three tabs — General, Persona Models (implemented in `config-persona-models.js`), and Model Registry (implemented in `config-model-registry.js`).
+`renderConfig` is the router entry point; it delegates to a set of named internal functions. The Configuration view has five tabs — General, Stores (implemented in `config-stores.js`), Persona Models (implemented in `config-persona-models.js`), Model Registry (implemented in `config-model-registry.js`), and Error Codes (implemented in `config-error-codes.js`). `CONFIG_TABS` — an array of `{ key, label, render, leave, reset }` descriptors declared in `config.js` — is the single source of truth for which tabs exist, which button labels appear, and how tab content is dispatched and cleaned up; `config.js` never reads or writes another module's `cs*`/`mr*`/`pm*`/`ec*` fields directly, only through a descriptor's three functions. `configFindTab(key)` looks up a descriptor by key, returning `undefined` when not found. See GUI constraint §25 "Config Tab Modules" for the full contract each descriptor's `render`/`leave`/`reset` must satisfy, and the "Two leave semantics" distinction (always-reset vs. reset-only-on-discard) it documents.
 
 **Scaffold functions:**
 
 | Function | Description |
 |----------|-------------|
 | `renderConfig(app)` | Entry point. Loads `API.getConfig()`, `API.getModels()`, `API.getPersonas()`, `API.getAssignments()`, and `API.getStores()` in parallel via `Promise.all`. Gracefully falls back to `[]` when optional API methods don't yet exist (`API.getStores` is guarded with a presence ternary for deployment safety). |
-| `renderConfigPage(app, config, models, personas, assignments, stores)` | Renders the page scaffold (heading + tab bar + `#config-tab-content`). Resets all `configDirty` flags and Model Registry local state on entry. Wires the tab-bar click handler with an unsaved-changes guard. |
-| `renderConfigTabContent(config, models, personas, assignments, stores)` | Dispatcher — reads `configActiveTab` and sets `#config-tab-content` innerHTML to the output of the active tab's render function. |
+| `renderConfigPage(app, config, models, personas, assignments, stores)` | Renders the page scaffold (heading + tab bar, built from `CONFIG_TABS.map()` + `#config-tab-content`). Resets every `configDirty` key and calls every `CONFIG_TABS` descriptor's `reset()` on entry — fresh server data is always about to replace whatever state existed, so every tab is reset unconditionally here regardless of its `leave` semantics. Wires the tab-bar click handler with an unsaved-changes guard. |
+| `renderConfigTabContent(config, models, personas, assignments, stores)` | Dispatcher — looks up the active tab via `configFindTab(configActiveTab)` and calls its `render(config, models, personas, assignments, stores)`; each tab's `render` ignores the arguments it does not need. |
 
 **General tab functions:**
 
@@ -7659,27 +8265,33 @@ Each view file exposes a global function called by `Router.dispatch()`:
 | `renderGeneralTab(config)` | Returns the General tab HTML (wraps the settings form in a `UI.card()`). |
 | `wireGeneralTabEvents()` | Attaches `change` and `input` listeners (both needed — checkboxes fire `change`, text/number inputs fire `input`) plus the `submit` handler to the General tab form. Sets `configDirty.general = false` on successful save. |
 
-**Persona Models tab** (defined in `config-persona-models.js` — loaded before `config.js`):
+**Persona Models tab** (defined in `config-persona-models.js` — loaded before `config.js`; registered in `CONFIG_TABS` as `{ render: renderPersonaModelsTab, leave: pmLeaveTab, reset: pmResetState }`):
 
 | Function | Description |
 |----------|-------------|
 | `renderPersonaModelsTab(models, personas, assignments)` | Entry point called by `renderConfigTabContent()`. Initializes pm* module state on first render or after a discard reset (`pmModels === null`); preserves existing state across tab switches that don't trigger the discard-changes path, so unsaved edits survive navigation. Returns `pmBuildTabHtml()`. |
+| `pmLeaveTab(discarded)` | Leaves the tab: always increments `pmVisit` (invalidating in-flight requests). Resets `pmModels`/`pmOriginal`/`pmCollapsed`/`pmReplaceOpen` (and `pmIsBuilding`, via the same branch) only when `discarded` is `true` — `render`'s arguments are not refreshed after a save, so resetting on every leave would re-initialise from stale data. Registered as `CONFIG_TABS`'s `leave`. |
+| `pmResetState()` | Full reset for a fresh page load: calls `pmLeaveTab(true)`. Registered as `CONFIG_TABS`'s `reset`. |
 | `pmRefreshTab()` | Re-renders the Persona Models tab into `#config-tab-content`, re-wires events, and syncs `configDirty.personaModels` via `pmHasChanges()`. Called after any state mutation. |
 | `pmBuildTabHtml()` | Builds the full tab HTML: suite sections (collapsed/expanded), per-persona model dropdowns, default model selector, stale-assignments banner, and action bar. |
-| `pmWireEvents()` | Attaches all event handlers via card-level event delegation: per-persona edit/done/cancel, default-model change, suite collapse/expand, Replace Model inline form, Rebuild and Save buttons. |
-| `pmDoSave()` | POSTs current `pmAssignments` to `PUT /api/model-assignments`. On success, updates `pmOriginal` snapshot and sets `configDirty.personaModels = false`. |
-| `pmDoRebuild()` | Triggers `POST /api/models/rebuild-personas`. Shows a build-progress state and refreshes the tab on completion. |
+| `pmWireEvents()` | Attaches all event handlers via card-level event delegation: per-persona edit/done/cancel, default-model change, suite collapse/expand, Replace Model inline form, Rebuild and Save buttons. Async handlers (e.g. the Replace Model inline form) capture `pmVisit` before their request and bail out in both `.then` and `.catch` when it no longer matches. |
+| `pmDoSave()` | POSTs current `pmAssignments` to `PUT /api/model-assignments`. Captures `pmVisit` before the request; bails out in both `.then` and `.catch` when stale. On success, updates `pmOriginal` snapshot and sets `configDirty.personaModels = false`. |
+| `pmDoRebuild()` | Triggers `POST /api/models/rebuild-personas`. Captures `pmVisit` before the request. Shows a build-progress state (`pmIsBuilding = true`) and refreshes the tab on completion. `pmIsBuilding` is cleared unconditionally by the settle callback — even when the visit is stale — before the stale check runs, since the flag spans visits (mirrors `ecSaveInFlight`); the nested `Promise.all` re-render that follows is itself guarded by the same `pmVisit` check. |
 | `pmHasChanges()` | Returns `true` when `pmAssignments` differs from `pmOriginal` (checks `default_model_uuid` and all `persona_models` entries). |
 | `pmCloneAssignments(a)` | Deep-clones an assignments object for snapshot comparison. |
 | `pmModelName(uuid)` | Resolves a model UUID to its display name from `pmModels`. |
 | `pmDirtyDot(isDirty)` | Returns the HTML for a dirty-indicator dot, or `''`. |
 | `pmBuildModelOptions(selectedUuid, includeDefault)` | Builds `<option>` elements for a model dropdown; optionally prepends a "Default" option. |
 
+**Model Registry tab** (defined in `config-model-registry.js` — loaded before `config.js`; registered in `CONFIG_TABS` as `{ render: renderModelRegistryTab, leave: mrLeaveTab, reset: mrResetState }`):
+
 **Model Registry tab — core render functions:**
 
 | Function | Description |
 |----------|-------------|
 | `renderModelRegistryTab(models)` | Main render entry. Initialises `mrModels` / `mrOriginal` / `mrEditingId` from server data on first call; preserves existing state if already populated (user may have unsaved edits). Returns `mrBuildTabHtml()`. |
+| `mrLeaveTab(discarded)` | Leaves the tab: always increments `mrVisit` (invalidating in-flight requests). Resets `mrModels`/`mrOriginal`/`mrEditingId` only when `discarded` is `true`, for the same stale-page-load-argument reason as Persona Models' `pmLeaveTab`. Registered as `CONFIG_TABS`'s `leave`. |
+| `mrResetState()` | Full reset for a fresh page load: calls `mrLeaveTab(true)`. Registered as `CONFIG_TABS`'s `reset`. |
 | `mrRefreshTab()` | Re-renders the tab content into `#config-tab-content` and re-wires all event handlers. Syncs `configDirty.modelRegistry` via `mrHasChanges()`. Called after any state mutation (edit, delete, restore, save). |
 | `mrBuildTabHtml()` | Builds the full Model Registry tab HTML string: model table (with read/edit rows), Add Model form, and action bar. Disables the Save button when any row has a slug validation error. |
 | `mrRenderRow(model)` | Returns HTML for a single read-only model row. Shows dirty-indicator dots for changed fields (name, slug, cc_model) vs the original snapshot. Adds strikethrough row class for pending deletions. |
@@ -7709,23 +8321,56 @@ Each view file exposes a global function called by `Router.dispatch()`:
 
 | Function | Description |
 |----------|-------------|
-| `mrDoSave()` | Strips `_deleted` entries from the working copy and sends the result to `PUT /api/models`. On success, refreshes `mrModels` / `mrOriginal` from the server response. On 409 CONFLICT, shows an error directing the user to the Replace Model feature on the Persona Models tab. |
-| `mrDoLoadDefaults()` | Shows a confirmation dialog, then calls `POST /api/models/load-defaults`. On success, refreshes state and displays slug-collision conflicts if any were returned. |
+| `mrDoSave()` | Strips `_deleted` entries from the working copy and sends the result to `PUT /api/models`. Captures `mrVisit` before the request; bails out in both `.then` and `.catch` when stale (a successful stale response still reconciles a retained `mrModels`/`mrOriginal` cache via `mrReconcileStale()`, with no DOM writes). On success, refreshes `mrModels` / `mrOriginal` from the server response. On 409 CONFLICT, shows an error directing the user to the Replace Model feature on the Persona Models tab. |
+| `mrDoLoadDefaults()` | Shows a confirmation dialog, then calls `POST /api/models/load-defaults`. Captures `mrVisit` before the request; bails out in both `.then` and `.catch` when stale (a successful stale response reconciles a retained cache via `mrReconcileStale()`). On success, refreshes state and displays slug-collision conflicts if any were returned. |
 
-**Module-level state** (`config.js` globals):
+**Error Codes tab** (defined in `config-error-codes.js` — loaded before `config.js`; registered in `CONFIG_TABS` as `{ render: function () { ecRenderTab(); }, leave: ecResetState, reset: ecResetState }` — Error Codes has no "keep state unless discarded" case, so `leave` and `reset` are the same function):
+
+| Function | Description |
+|----------|-------------|
+| `ecRenderTab()` | Entry point called by `renderConfigTabContent()`. Lazily fetches `API.getErrorCodeProviders()`, `API.getErrorCodeConfig()`, and `API.getTemporaryErrorCodes()` in parallel on first activation only (`ecProviders === null`); every later call (including a provider switch) re-renders synchronously from cached state. This lazy-load contract is why Error Codes data is never added to `renderConfig()`'s own `Promise.all`. |
+| `ecBuildTabHtml()` | Builds the full tab HTML: an escaped error banner above the settings form when `ecConfigWarning` is set, provider `<select>`, the selected provider's descriptor-driven settings form, the core (non-provider) settings fields, Save/Test buttons, the plugins panel, and the temporary-codes list. |
+| `ecRenderField(field, storedValue)` | Renders one settings descriptor as a form control: `string`/`path` → text, `url` → `type="url"`, `secret` → password input (never pre-filled) with a Set/Not-set indicator and a conditional Clear-stored-value checkbox, `integer` → number input with `min`/`max`, `boolean` → checkbox, `select` → `<select>`, any unrecognised type → text. Every label/description/value is passed through `escapeHtml()`. |
+| `ecRenderCoreSettings()` | Renders the temporary-code prefix, allocation timeout, and the two retry-wait fields. |
+| `ecRenderPluginsPanel()` | Renders the plugin directory path + copy button, installed plugins (source: `'plugin'`), load errors, and the empty state. |
+| `ecRenderTemporaryList()` | Renders the temporary-codes table (server already returns newest-first, capped) or the empty state, preceded by an escaped error banner when `ecTemporaryWarning` is set. |
+| `ecCollectProviderSettings(provider)` | Reads the current form values for one provider's descriptors into `{ settings, clear_secrets }`. A secret field whose Clear-stored-value checkbox is ticked is omitted from `settings` and listed in `clear_secrets`; a secret left blank (and not cleared) is omitted entirely so the server keeps the stored value. |
+| `ecCollectCoreSettings()` | Reads and validates the core settings fields; returns `null` (after showing an error in the live region) when the temporary prefix does not match `EC_TEMPORARY_PREFIX_PATTERN` (a mirror of the server's `TEMPORARY_PREFIX_PATTERN`, pinned by a test) or a numeric value is not a positive integer. |
+| `ecHandleSave(form)` | The `#ec-form` submit handler. Guarded by `ecSaveInFlight` (returns before validation while a PUT is pending, so a second submit, `submit` event or `requestSubmit()` sends nothing). Calls `form.reportValidity()`, then `PUT /api/error-codes/config` with the selected provider's id as both `active_provider` and `provider_id`, its collected settings/`clear_secrets`, and the core settings. On success, clears `ecConfigWarning` (a successful save just wrote a fully-validated `config.json`, so any prior salvage/corruption warning no longer applies), re-renders the tab (so masked secret state reflects the save) and writes to `#ec-live-region`. |
+| `ecHandleTestClick(btn)` | The "Test connection" click handler. Guarded by `ecTestInFlight` so a second click while a request is pending never fires a second one. Disables the button and sets its text to "Testing…" for the duration. |
+| `ecHandleProviderChange(selectEl)` | The provider `<select>`'s change handler. When `configDirty.errorCodes` is true, shows the same `confirm()` discard dialog as the tab-bar guard; reverts the selection on cancel. |
+| `ecHandleCopyPluginDir(btn)` | Copies the plugin directory path to the clipboard (or a `document.execCommand('copy')` fallback), mirroring `config-stores.js`'s `.cs-copy-btn` pattern. |
+| `ecWireEvents()` | Wires delegated `change`/`input`/`click` listeners on `#config-tab-content` plus the `#ec-form` `submit` handler. Calls `ecCleanup()` first as a duplicate-listener guard. |
+| `ecCleanup()` | Removes every listener `ecWireEvents()` attached. Called before re-wiring within a visit and from `ecResetState()`. |
+| `ecResetState()` | Leaves the tab: increments `ecVisit` (so every request still pending is stale), calls `ecCleanup()`, and resets every `ec*` field except `ecSaveInFlight`. Registered in `CONFIG_TABS` as both `leave` and `reset` — called by `renderConfigPage()`'s reset pass and by the tab-bar exit branch via `leavingTab.leave(discarded)`; `config.js` keeps no list of this module's fields. |
+
+**Module-level state** (`config.js` globals unless noted otherwise):
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `configActiveTab` | `string` | Currently active tab key (`'general'`, `'personaModels'`, `'modelRegistry'`, `'stores'`). Persists across tab switches within a page visit. Defaults to `'general'` (hard-coded at declaration — not runtime-configurable). |
-| `configDirty` | `{ general, personaModels, modelRegistry, stores: boolean }` | Per-tab dirty flags. Set to `true` on any form change. Reset to `false` on save or on `renderConfigPage()` re-entry. `stores` is always `false` — the Stores tab uses immediate writes. |
+| `configActiveTab` | `string` | Currently active tab key (`'general'`, `'personaModels'`, `'modelRegistry'`, `'stores'`, `'errorCodes'`). Persists across tab switches within a page visit. Defaults to `'general'` (hard-coded at declaration — not runtime-configurable). |
+| `configDirty` | `{ general, personaModels, modelRegistry, stores, errorCodes: boolean }` | Per-tab dirty flags. Set to `true` on any form change. Reset to `false` on save or on `renderConfigPage()` re-entry. `stores` is always `false` — the Stores tab uses immediate writes. |
+| `CONFIG_TABS` | `{ key, label, render, leave, reset }[]` | The tab registry — single source of truth for tab buttons, content dispatch and per-tab cleanup. See "`config.js` — Internal Functions" above and GUI constraint §25. |
+| `csVisit` (`config-stores.js`) | `number` | Monotonic visit token, incremented by `csResetState()`. `csHandleModalSave`, `csRefreshTab`, the delete/sync handlers in `csWireEvents`, and `csMoveStore` each capture it before their request and return early in both `.then` and `.catch` when it no longer matches. |
 | `mrModels` | `ModelEntry[] \| null` | Working copy of the model list. May contain edits or pending deletions (entries with `_deleted: true`). `null` until first tab activation. |
 | `mrOriginal` | `ModelEntry[] \| null` | Snapshot loaded from the server — used for dirty comparison via `mrHasChanges()`. Replaced on each successful save. |
 | `mrEditingId` | `string \| null` | UUID of the model row currently in inline edit mode. `null` when no row is being edited. |
+| `mrVisit` (`config-model-registry.js`) | `number` | Monotonic visit token, incremented by `mrLeaveTab()`/`mrResetState()`. `mrDoSave` and `mrDoLoadDefaults` capture it before their request and return early in both `.then` and `.catch` when it no longer matches. |
 | `MR_SLUG_REGEX` | `RegExp` | `/^[a-z0-9]+(-[a-z0-9]+)*$/` — mirrors the server-side slug validation rule. |
+| `pmIsBuilding` (`config-persona-models.js`) | `boolean` | `true` while `pmDoRebuild()`'s request is in flight. Spans visits by design — `pmLeaveTab(discarded)` only resets it when `discarded` is `true`, but `pmDoRebuild`'s own settle callback always clears it first, even when the visit is stale, mirroring `ecSaveInFlight`. |
+| `pmVisit` (`config-persona-models.js`) | `number` | Monotonic visit token, incremented by `pmLeaveTab()`/`pmResetState()`. `pmDoSave`, `pmDoRebuild` (and its nested refresh) and the async `pmWireEvents` callbacks capture it before their request and return early in both `.then` and `.catch` when it no longer matches. |
+| `ecProviders` | `ProviderListItem[] \| null` | Providers from the most recent `GET /api/error-codes/providers`. `null` until the tab's first lazy load, and nulled again by the tab-switch cleanup branch — each tab visit re-fetches. |
+| `ecConfig` | `ErrorCodeConfigResponse \| null` | The allocator's config (secrets masked to `{ set: boolean }`). `null` until first lazy load. |
+| `ecConfigWarning` | `string \| null` | `ecConfig.warning` from the most recent `GET`/`PUT /api/error-codes/config` response — set during the lazy load and after a successful save, rendered as an escaped error banner above the settings form (`ecBuildTabHtml()`), and cleared by `ecResetState()` on tab exit. |
+| `ecSelectedProviderId` | `string \| null` | Id of the provider currently shown in the settings form. Defaults to `ecConfig.active_provider` on load; changed only via the provider `<select>`, guarded by the unsaved-changes `confirm()`. |
+| `ecSaveInFlight` | `boolean` | `true` while a Save (`PUT /api/error-codes/config`) request is pending. Set right before the PUT, cleared first in both settle callbacks; deliberately not reset by `ecCleanup()`. |
+| `ecTestInFlight` | `boolean` | `true` while a "Test connection" request is pending — guards a second click from firing a second request. A stale Test callback (tab left meanwhile) never touches it, so it cannot unlock a newer visit's pending test. |
+| `ecVisit` | `number` | Monotonic visit token, incremented by `ecResetState()`. The lazy load, Save and Test callbacks capture it before the request and return early when it no longer matches, so a late response cannot write into another tab's DOM or repopulate cleared state. A late Save still clears `ecSaveInFlight` first, since that flag spans visits. |
+| `ecTemporaryWarning` | `string \| null` | Notice shown in the Temporary Codes card: the listing's `warning`, or `Temporary codes could not be loaded: …` when only that fetch failed (the settings form still renders). |
 
 **`configDirty` cross-module contract:**
 
-`configDirty` is a shared mutable object with four boolean keys — `general`, `personaModels`, `modelRegistry`, and `stores`. It is declared and owned by `config.js` but mutated directly by all four tab modules:
+`configDirty` is a shared mutable object with five boolean keys — `general`, `personaModels`, `modelRegistry`, `stores`, and `errorCodes`. It is declared and owned by `config.js` but mutated directly by all five tab modules:
 
 | Module | Key written | When written |
 |--------|-------------|--------------|
@@ -7733,13 +8378,22 @@ Each view file exposes a global function called by `Router.dispatch()`:
 | `config-model-registry.js` | `.modelRegistry` | After any state mutation via `mrHasChanges()` |
 | `config-persona-models.js` | `.personaModels` | After any state mutation via `pmHasChanges()`; successful save → `false` |
 | `config-stores.js` | `.stores` | Never set to `true` — Stores tab uses immediate writes; always `false`. |
+| `config-error-codes.js` | `.errorCodes` | `change`/`input` on any form field → `true` (except the provider `<select>` itself and a Clear-stored-value toggle, which route through `ecHandleProviderChange`/the clear-checkbox branch first); successful save → `false`. |
 
 **Rules companion modules must follow:**
 1. **Never reassign `configDirty`** — the companion files hold a reference to the original object. Replacing it with `configDirty = {}` would break the coordinator's reference silently.
-2. **Only mutate named keys** — do not add or delete keys; `renderConfigPage()` always resets all four known keys on fresh load.
-3. **Load order** — `config-model-registry.js`, `config-persona-models.js`, and `config-stores.js` must load _before_ `config.js` (see `index.html`). All three files reference `configDirty` only inside function bodies (not at module evaluation time), so the forward-reference is safe even though `configDirty` is not yet declared when these files are evaluated.
+2. **Only mutate named keys** — do not add or delete keys; `renderConfigPage()` always resets all five known keys on fresh load.
+3. **Load order** — `config-model-registry.js`, `config-persona-models.js`, `config-stores.js`, and `config-error-codes.js` must load _before_ `config.js` (see `index.html`). All four files reference `configDirty` only inside function bodies (not at module evaluation time), so the forward-reference is safe even though `configDirty` is not yet declared when these files are evaluated.
 
-The tab-bar unsaved-changes guard in `config.js` reads `configDirty[configActiveTab]` on every tab-switch click and shows a `confirm()` dialog when the value is `true`. On discard, it resets the key and clears the affected tab module's state variables.
+**Integration points a future tab module must follow** (established by `config-stores.js`, confirmed again by `config-error-codes.js`, `config-model-registry.js` and `config-persona-models.js`):
+- Add a boolean key to the `configDirty` literal in `config.js` (mutate only, per Rule 1 above).
+- Add a `{ key, label, render, leave, reset }` descriptor to `CONFIG_TABS` in `config.js`. `render` populates `#config-tab-content`; `leave(discarded)` runs when the tab-bar handler switches away (after the dirty-guard `confirm()`, if it fired); `reset()` runs with no arguments from `renderConfigPage()` on every fresh page load. Choose between the two `leave` shapes GUI constraint §25 documents: always-reset (`leave`/`reset` both the same function, as Stores/Error Codes do) when `render`'s arguments never go stale across visits, or reset-only-on-discard (`mrLeaveTab`/`pmLeaveTab`'s shape) when a successful save updates the tab's own in-memory snapshot without `config.js` refreshing `render`'s arguments.
+- `leave` must always invalidate in-flight requests (increment the module's visit token) regardless of `discarded`, even in the always-reset case — this is what makes point 5 below (visit-token guarding) actually take effect on every tab switch, not only on a discard.
+- Hold a monotonic visit token (e.g. `mrVisit`, `pmVisit`, `csVisit`, `ecVisit`), incremented by the tab's `leave`/`reset` function. Every async call site (lazy load, save, test, rebuild) captures the token before its request and returns early — in both `.then` and `.catch` — when it no longer matches, so a response that settles after the user left cannot write into the shared `#config-tab-content` or repopulate state that was just cleared. A flag that spans visits by design (`ecSaveInFlight`, `pmIsBuilding`) is still cleared by its own callback before the stale check.
+- If the tab's data is not part of the page's initial load, fetch it lazily on first activation inside the tab's own render-entry function rather than adding it to `renderConfig()`'s `Promise.all` — `config-error-codes.js`'s `ecRenderTab()` is the reference implementation.
+- No separate dispatcher branch or tab-bar cleanup branch is needed — `renderConfigTabContent()` and the tab-bar click handler both operate purely off `CONFIG_TABS` via `configFindTab()`, so adding the descriptor is sufficient.
+
+The tab-bar unsaved-changes guard in `config.js` reads `configDirty[configActiveTab]` on every tab-switch click and shows a `confirm()` dialog when the value is `true`. On discard, it resets the key, sets `discarded = true`, and calls the left tab's `leave(discarded)` via its `CONFIG_TABS` descriptor — which runs unconditionally either way, so a tab switch away from a never-dirty tab still invalidates its visit token and (for always-reset tabs) clears its cached state.
 
 **Dependencies:** `API`, `UI`, `escapeHtml`, `showLoading`, `showError` (all globals, loaded before `config.js`).
 

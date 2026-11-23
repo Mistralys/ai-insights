@@ -5,6 +5,7 @@ _SOURCE: GUI REST route handlers: knowledge, queue, run-log, server bootstrap_
 // Structure of documents
 └── mcp-server/
     └── gui/
+        └── api-error-codes.ts
         └── api-knowledge.ts
         └── api-models.ts
         └── api-repos.ts
@@ -13,7 +14,423 @@ _SOURCE: GUI REST route handlers: knowledge, queue, run-log, server bootstrap_
         └── chunk-accumulator.ts
         └── chunk-renderer.ts
         └── orchestrator-manager.ts
+        └── route-guards.ts
         └── server.ts
+
+```
+###  Path: `/mcp-server/gui/api-error-codes.ts`
+
+```ts
+/**
+ * GUI API Route Handlers — Error-Code Provider Domain
+ *
+ * All REST handlers for the `/api/error-codes/*` endpoints that back the
+ * GUI's Error Codes settings tab. Follows the domain-split pattern
+ * established by `api-repos.ts` / `api-knowledge.ts` — each API domain gets
+ * its own handler file imported from `server.ts`.
+ *
+ * Every route here is registered with `requireLoopbackRequest` (and the
+ * `PUT`/`POST` routes additionally with `requireJsonContentType`) in
+ * `server.ts`'s `buildErrorCodeRoutes()` — this module assumes that guard
+ * has already run and never re-checks it.
+ *
+ * Routes provided:
+ *   GET  /api/error-codes/providers  — list every registered provider (built-in and plugin), plus plugin load errors
+ *   GET  /api/error-codes/config     — the allocator's config, with every secret masked to { set: boolean }
+ *   PUT  /api/error-codes/config     — update the config and/or one provider's settings
+ *   POST /api/error-codes/test       — connection-test a provider's settings without allocating a code
+ *   GET  /api/error-codes/temporary  — list logged temporary codes, newest-first, capped by `limit`
+ *
+ * Error shape: { code: string, message: string, details?: unknown }
+ *   NOT_FOUND            → 404
+ *   VALIDATION_ERROR     → 400
+ *   UNSUPPORTED_MEDIA_TYPE → 415 (guard-only; never thrown by a handler in this file)
+ *   (unhandled)          → 500
+ *
+ * STDIO discipline: this file never writes to process.stdout.
+ */
+
+import { randomUUID } from 'crypto';
+import { z } from 'zod';
+import { ApiError, describeZodIssues } from '../src/gui/errors.js';
+import { getProvider, listProviders, listProviderLoadErrors, type ProviderLoadError } from '../src/error-codes/provider-registry.js';
+import { loadErrorCodeConfig, readErrorCodeConfig, updateErrorCodeConfig, TemporaryPrefixSchema, type ErrorCodeConfig } from '../src/error-codes/config-store.js';
+import {
+  buildSettingsSchema,
+  toPublicSettings,
+  mergeSettingsUpdate,
+  mergeSettingsForTest,
+  collectSecrets,
+} from '../src/error-codes/settings-schema.js';
+import { createRedactingLogger, redact } from '../src/error-codes/redact.js';
+import { listTemporaryCodes, type TemporaryCodeEntry } from '../src/error-codes/temporary-codes.js';
+import { resolveErrorCodesDir, resolveErrorCodePluginDir, resolveErrorCodeProviderDataDir } from '../src/storage/store-registry.js';
+import type { AllocationRequest, ErrorCodeProvider, ProviderContext, SettingField, TestOutcome } from '../src/error-codes/provider-api.js';
+
+function validationError(message: string, details?: unknown): never {
+  throw new ApiError('VALIDATION_ERROR', message, details);
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/error-codes/providers
+// ---------------------------------------------------------------------------
+
+/** One provider as returned to the GUI — descriptors only, never a settings value. */
+export interface ProviderListItem {
+  id: string;
+  label: string;
+  description?: string;
+  settings: SettingField[];
+  /** `true` when the provider offers `test` or `peek` — the GUI only renders a "Test connection" button when this is `true`. */
+  supports_test: boolean;
+  source: 'builtin' | 'plugin';
+  /** Absolute path to the plugin's file or folder. Present only for `source: 'plugin'`. Showing this path is a deliberate, loopback-guarded exception to the GUI's "no internal paths in responses" rule. */
+  path?: string;
+}
+
+/**
+ * Lists every provider currently registered (built-in and plugin alike),
+ * plus the plugin directory that was scanned and any load errors recorded
+ * by the most recent `initProviderRegistry()` call.
+ */
+export async function handleListErrorCodeProviders(): Promise<{
+  providers: ProviderListItem[];
+  plugin_dir: string;
+  load_errors: ProviderLoadError[];
+}> {
+  const providers: ProviderListItem[] = listProviders().map((entry) => ({
+    id: entry.provider.id,
+    label: entry.provider.label,
+    ...(entry.provider.description !== undefined ? { description: entry.provider.description } : {}),
+    settings: entry.provider.settings,
+    supports_test: typeof entry.provider.test === 'function' || typeof entry.provider.peek === 'function',
+    source: entry.source,
+    ...(entry.path !== undefined ? { path: entry.path } : {}),
+  }));
+
+  return {
+    providers,
+    plugin_dir: resolveErrorCodePluginDir(),
+    load_errors: listProviderLoadErrors(),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// GET / PUT /api/error-codes/config
+// ---------------------------------------------------------------------------
+
+/** Shared GET/PUT response shape: every secret is masked to `{ set: boolean }`. */
+export interface ErrorCodeConfigResponse {
+  active_provider: string;
+  temporary_prefix: string;
+  timeout_ms: number;
+  retry: { default_wait_ms: number; max_wait_ms: number };
+  /** Keyed by provider id. Only currently-registered providers appear here — an uninstalled provider's stored settings are preserved in config.json but omitted from this response, since this module has no settings descriptors to mask its secrets safely. */
+  providers: Record<string, Record<string, unknown>>;
+  /** Present only when `config.json` needed salvage or could not be used as stored — see `readErrorCodeConfig()`. Never a stored value or a parser message. */
+  warning?: string;
+}
+
+function buildConfigResponse(config: ErrorCodeConfig, warning?: string): ErrorCodeConfigResponse {
+  const providers: Record<string, Record<string, unknown>> = {};
+  for (const entry of listProviders()) {
+    const stored = config.providers[entry.provider.id] ?? {};
+    providers[entry.provider.id] = toPublicSettings(entry.provider.settings, stored);
+  }
+
+  return {
+    active_provider: config.active_provider,
+    temporary_prefix: config.temporary_prefix,
+    timeout_ms: config.timeout_ms,
+    retry: config.retry,
+    providers,
+    ...(warning !== undefined ? { warning } : {}),
+  };
+}
+
+/**
+ * Returns the allocator's config, with every secret masked to `{ set: boolean }`.
+ *
+ * Uses {@link readErrorCodeConfig} (not {@link loadErrorCodeConfig}) so a
+ * salvaged/corrupt/unreadable config.json surfaces its `warning` to the GUI
+ * instead of only to stderr, which this GET route's caller never sees.
+ */
+export async function handleGetErrorCodeConfig(): Promise<ErrorCodeConfigResponse> {
+  const { config, warning } = await readErrorCodeConfig();
+  return buildConfigResponse(config, warning);
+}
+
+/**
+ * Body schema for `PUT /api/error-codes/config`.
+ *
+ * Exported so that test code can construct and inspect validated shapes
+ * directly. Not intended as a stable public API — treat as `@internal`.
+ *
+ * Every top-level field is optional and independently applied: an omitted
+ * field leaves the corresponding stored value unchanged. `provider_id` /
+ * `settings` / `clear_secrets` together update one provider's settings
+ * block — `settings` and `clear_secrets` are ignored when `provider_id` is
+ * absent.
+ */
+export const PutErrorCodeConfigBodySchema = z
+  .object({
+    active_provider: z.string().optional(),
+    temporary_prefix: TemporaryPrefixSchema.optional(),
+    timeout_ms: z.number().int().positive().optional(),
+    retry: z
+      .object({
+        default_wait_ms: z.number().int().positive().optional(),
+        max_wait_ms: z.number().int().positive().optional(),
+      })
+      .optional(),
+    provider_id: z.string().optional(),
+    settings: z.record(z.string(), z.unknown()).optional(),
+    clear_secrets: z.array(z.string()).optional(),
+  })
+  .strict();
+
+/**
+ * Updates the allocator's top-level config and/or one provider's settings.
+ *
+ * - `provider_id` must name a currently-registered provider — this route
+ *   has no settings descriptors for an uninstalled one, so it cannot
+ *   validate or mask its secrets, and rejects the attempt with
+ *   `VALIDATION_ERROR` rather than writing an unvalidated blob. Omitting
+ *   `provider_id` (to change only `active_provider` or the other top-level
+ *   fields) leaves every provider's stored settings untouched, which is
+ *   exactly how an uninstalled provider's settings survive the round trip.
+ * - When `provider_id` is present, `settings` is merged onto the stored
+ *   settings via `mergeSettingsUpdate` (an absent/empty secret keeps the
+ *   stored value; a key listed in `clear_secrets` is cleared), then
+ *   validated against that provider's own `buildSettingsSchema` — invalid
+ *   settings are rejected with `VALIDATION_ERROR` and never written.
+ * - `active_provider`, when present, must also name a currently-registered
+ *   provider — the GUI's provider selector only ever offers a registered
+ *   id, so this guards against a stale or hand-crafted request silently
+ *   pointing the allocator at a provider it does not know about yet.
+ */
+export async function handleUpdateErrorCodeConfig(body: unknown): Promise<ErrorCodeConfigResponse> {
+  const parsed = PutErrorCodeConfigBodySchema.safeParse(body);
+  if (!parsed.success) {
+    validationError(`Invalid request body: ${describeZodIssues(parsed.error.issues)}`, parsed.error.flatten().fieldErrors);
+  }
+
+  const { active_provider, temporary_prefix, timeout_ms, retry, provider_id, settings, clear_secrets } = parsed.data;
+
+  if (active_provider !== undefined && getProvider(active_provider) === undefined) {
+    validationError(`Unknown or uninstalled provider: '${active_provider}'.`);
+  }
+
+  let validatedProviderSettings: Record<string, unknown> | undefined;
+  let targetProvider: ErrorCodeProvider | undefined;
+
+  if (provider_id !== undefined) {
+    targetProvider = getProvider(provider_id);
+    if (targetProvider === undefined) {
+      validationError(`Unknown or uninstalled provider: '${provider_id}'.`);
+    }
+
+    const current = await loadErrorCodeConfig();
+    const stored = current.providers[provider_id] ?? {};
+    const merged = mergeSettingsUpdate(targetProvider.settings, stored, settings ?? {}, clear_secrets ?? []);
+    const schemaResult = buildSettingsSchema(targetProvider.settings).safeParse(merged);
+    if (!schemaResult.success) {
+      validationError(`Invalid provider settings: ${describeZodIssues(schemaResult.error.issues)}`, schemaResult.error.flatten().fieldErrors);
+    }
+    validatedProviderSettings = schemaResult.data;
+  }
+
+  const updated = await updateErrorCodeConfig((current) => {
+    const next: ErrorCodeConfig = {
+      ...current,
+      ...(active_provider !== undefined ? { active_provider } : {}),
+      ...(temporary_prefix !== undefined ? { temporary_prefix } : {}),
+      ...(timeout_ms !== undefined ? { timeout_ms } : {}),
+      ...(retry !== undefined ? { retry: { ...current.retry, ...retry } } : {}),
+    };
+
+    if (provider_id !== undefined && validatedProviderSettings !== undefined) {
+      next.providers = { ...current.providers, [provider_id]: validatedProviderSettings };
+    }
+
+    return next;
+  });
+
+  return buildConfigResponse(updated);
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/error-codes/test
+// ---------------------------------------------------------------------------
+
+/**
+ * Body schema for `POST /api/error-codes/test`.
+ *
+ * Exported so that test code can construct and inspect validated shapes
+ * directly. Not intended as a stable public API — treat as `@internal`.
+ */
+export const TestErrorCodeProviderBodySchema = z
+  .object({
+    provider_id: z.string(),
+    settings: z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
+
+/** Response shape for `POST /api/error-codes/test`. */
+export interface TestConnectionResponse {
+  /** `false` when the provider offers neither `test` nor `peek` — `ok`/`reason`/`detail`/`value` are then absent. */
+  supported: boolean;
+  /** `true` when a stored secret was merged into the settings actually tested (see `mergeSettingsForTest`). */
+  secrets_merged: boolean;
+  ok?: boolean;
+  reason?: string;
+  detail?: string;
+  value?: number;
+  message?: string;
+}
+
+/**
+ * Connection-tests a provider's settings without ever calling `allocate` —
+ * this is the one route in the server that combines a provider's stored
+ * secrets with client-supplied settings, so it follows the fail-closed
+ * merge rule documented on `mergeSettingsForTest`: stored secrets are
+ * merged in only when every non-secret field (of any type) matches its
+ * stored value; otherwise the incoming settings are tested as given,
+ * including any incoming secret, and `secrets_merged` is `false`.
+ *
+ * Calls the provider's `test` hook when present; falls back to `peek` when
+ * `test` is absent (built with a core-constructed `AllocationRequest`
+ * carrying no repository and no context, since a connection test is not
+ * about any one allocation); when neither hook is offered, returns
+ * `{ supported: false, message: "… offers no connection test" }` without
+ * calling the provider at all.
+ *
+ * A throw from `test`/`peek` is caught and reported as `{ ok: false,
+ * reason: 'failed' }`; a timeout (the same `config.timeout_ms` the
+ * allocator itself uses) is reported as `{ ok: false, reason: 'unavailable' }`.
+ * Every text field is redacted of the tested settings' secrets before
+ * leaving this function.
+ */
+export async function handleTestErrorCodeProvider(body: unknown): Promise<TestConnectionResponse> {
+  const parsed = TestErrorCodeProviderBodySchema.safeParse(body);
+  if (!parsed.success) {
+    validationError(`Invalid request body: ${describeZodIssues(parsed.error.issues)}`, parsed.error.flatten().fieldErrors);
+  }
+  const { provider_id, settings } = parsed.data;
+
+  const provider = getProvider(provider_id);
+  if (provider === undefined) {
+    validationError(`Unknown or uninstalled provider: '${provider_id}'.`);
+  }
+
+  const config = await loadErrorCodeConfig();
+  const stored = config.providers[provider_id] ?? {};
+  const merge = mergeSettingsForTest(provider.settings, stored, settings ?? {});
+
+  const schemaResult = buildSettingsSchema(provider.settings).safeParse(merge.settings);
+  if (!schemaResult.success) {
+    validationError(`Invalid provider settings: ${describeZodIssues(schemaResult.error.issues)}`, schemaResult.error.flatten().fieldErrors);
+  }
+  const validatedSettings = schemaResult.data;
+  const secrets = collectSecrets(provider.settings, validatedSettings);
+
+  if (typeof provider.test !== 'function' && typeof provider.peek !== 'function') {
+    return {
+      supported: false,
+      secrets_merged: merge.secrets_merged,
+      message: `Provider '${provider_id}' offers no connection test.`,
+    };
+  }
+
+  const signal = AbortSignal.timeout(config.timeout_ms);
+  const log = createRedactingLogger(`${provider_id}-test`, secrets);
+  const ctx: ProviderContext = {
+    settings: validatedSettings,
+    signal,
+    data_dir: resolveErrorCodeProviderDataDir(provider_id),
+    log,
+  };
+
+  try {
+    let outcome: TestOutcome;
+    if (typeof provider.test === 'function') {
+      outcome = await provider.test(ctx);
+    } else {
+      const request: AllocationRequest = { request_id: randomUUID(), cwd_path: null, repository: null, context: null };
+      const peekOutcome = await provider.peek!(request, ctx);
+      outcome = peekOutcome;
+    }
+
+    if (outcome.ok) {
+      return {
+        supported: true,
+        secrets_merged: merge.secrets_merged,
+        ok: true,
+        ...(outcome.detail !== undefined ? { detail: redact(outcome.detail, secrets) } : {}),
+        ...(outcome.value !== undefined ? { value: outcome.value } : {}),
+      };
+    }
+
+    return {
+      supported: true,
+      secrets_merged: merge.secrets_merged,
+      ok: false,
+      reason: outcome.reason,
+      ...(outcome.detail !== undefined ? { detail: redact(outcome.detail, secrets) } : {}),
+    };
+  } catch (error) {
+    if (signal.aborted) {
+      return {
+        supported: true,
+        secrets_merged: merge.secrets_merged,
+        ok: false,
+        reason: 'unavailable',
+        detail: `provider '${provider_id}' timed out after ${config.timeout_ms}ms`,
+      };
+    }
+    const message = error instanceof Error ? error.message : String(error);
+    return {
+      supported: true,
+      secrets_merged: merge.secrets_merged,
+      ok: false,
+      reason: 'failed',
+      detail: redact(message, secrets),
+    };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/error-codes/temporary
+// ---------------------------------------------------------------------------
+
+/** Default, and maximum sane, number of entries `GET /api/error-codes/temporary` returns when `limit` is omitted. */
+const DEFAULT_TEMPORARY_CODES_LIMIT = 200;
+
+/**
+ * Lists logged temporary codes, newest-first, capped at `limit` (default
+ * {@link DEFAULT_TEMPORARY_CODES_LIMIT}).
+ *
+ * @param query - Parsed query-string parameters from the request URL. An
+ *   optional `limit` must be a positive integer.
+ * @returns The entries, plus a `warning` passed through unchanged when the log is corrupt.
+ */
+export async function handleListTemporaryErrorCodesGui(
+  query?: URLSearchParams
+): Promise<{ entries: TemporaryCodeEntry[]; warning?: string }> {
+  let limit = DEFAULT_TEMPORARY_CODES_LIMIT;
+  const limitParam = query?.get('limit');
+  if (limitParam !== null && limitParam !== undefined) {
+    const parsedLimit = Number(limitParam);
+    if (!Number.isInteger(parsedLimit) || parsedLimit <= 0) {
+      validationError('limit must be a positive integer.');
+    }
+    limit = parsedLimit;
+  }
+
+  const { entries, warning } = await listTemporaryCodes(resolveErrorCodesDir());
+  const newestFirst = [...entries].reverse();
+  return { entries: newestFirst.slice(0, limit), ...(warning !== undefined ? { warning } : {}) };
+}
 
 ```
 ###  Path: `/mcp-server/gui/api-knowledge.ts`
@@ -2585,6 +3002,7 @@ import { withLock } from '../src/storage/file-lock.js';
 import { inferProjectRootFromPlanPath, resolveProjectDir } from '../src/utils/ledger-root.js';
 import { assertSafeSegment } from '../src/utils/path-validator.js';
 import { readProjectName } from '../src/utils/read-project-name.js';
+import { hasErrorCode, isNodeError } from '../src/utils/node-errors.js';
 import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, DIALOGUES_DIR, CHUNKS_DIR } from '../src/utils/constants.js';
 import {
   PIPELINE_AGENT_MAP,
@@ -2620,7 +3038,7 @@ import type {
   ProjectResetResult,
   MarkProjectCompleteResult,
 } from '../src/utils/project-reset.js';
-import { ApiError } from '../src/gui/errors.js';
+import { ApiError, describeZodIssues } from '../src/gui/errors.js';
 import {
   getMultiStoreManager,
   getStoreRouter,
@@ -2643,6 +3061,29 @@ import { renderChunksToText } from './chunk-renderer.js';
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Tracks the in-flight fire-and-forget self-heal writes issued by
+ * `handleGetProject` (see the write site below). Production code never
+ * awaits these writes — they stay fire-and-forget so no request pays extra
+ * lock latency on every project view — but tests need a way to know when a
+ * given write has landed so teardown doesn't race the write's `rm`. Each
+ * promise is added to this set when the write starts and removed in a
+ * `finally` regardless of outcome, so the set never grows unbounded.
+ */
+const pendingSelfHeals = new Set<Promise<void>>();
+
+/**
+ * Test-only hook: resolves once every self-heal write currently tracked in
+ * `pendingSelfHeals` has settled. Used by test `afterEach` hooks to await
+ * the write before removing the temp directory, instead of sleeping for an
+ * arbitrary duration.
+ *
+ * @internal Test-only. Not part of the public API surface.
+ */
+export async function __awaitPendingSelfHealsForTesting(): Promise<void> {
+  await Promise.all([...pendingSelfHeals]);
+}
 
 function notFound(message: string): never {
   throw new ApiError('NOT_FOUND', message);
@@ -3274,9 +3715,20 @@ export async function handleGetProject(
 
     // Flush every self-heal update collected above in one fire-and-forget write.
     // A failed write is harmless (the next detail view retries). preserveLastUpdated
-    // avoids distorting project-list sort order on a mere cache refresh.
+    // avoids distorting project-list sort order on a mere cache refresh. The write
+    // is still never awaited by the request — it's tracked in pendingSelfHeals purely
+    // so tests can await its completion (via __awaitPendingSelfHealsForTesting) instead
+    // of sleeping for an arbitrary duration; the entry is removed in finally regardless
+    // of success or failure so the set never grows unbounded.
     if (selfHealUpdates !== undefined) {
-      store.writeProjectMeta('', undefined, selfHealUpdates, { preserveLastUpdated: true }).catch(() => {});
+      const selfHealPromise: Promise<void> = store
+        .writeProjectMeta('', undefined, selfHealUpdates, { preserveLastUpdated: true })
+        .then(() => undefined)
+        .catch(() => undefined)
+        .finally(() => {
+          pendingSelfHeals.delete(selfHealPromise);
+        });
+      pendingSelfHeals.add(selfHealPromise);
     }
 
     const timing = { project_elapsed_ms, total_active_ms, pipeline_runs };
@@ -3588,7 +4040,7 @@ export async function handleUpdateConfig(
   // Validate with the partial schema (ledger_root stripped by schema omission)
   const parseResult = GuiConfigPartialSchema.safeParse(body);
   if (!parseResult.success) {
-    validationError('Invalid config values.', parseResult.error.issues);
+    validationError(`Invalid config values: ${describeZodIssues(parseResult.error.issues)}`, parseResult.error.issues);
   }
 
   return writeConfig(configPath, parseResult.data);
@@ -3632,7 +4084,7 @@ export async function handleResetProject(
   // Validate body
   const parseResult = ResetRequestSchema.safeParse(body);
   if (!parseResult.success) {
-    validationError('Invalid reset request body.', parseResult.error.issues);
+    validationError(`Invalid reset request body: ${describeZodIssues(parseResult.error.issues)}`, parseResult.error.issues);
   }
   const { dry_run, decisions } = parseResult.data;
 
@@ -3723,7 +4175,7 @@ export async function handleRenameProject(
   assertSafeSlug(slug);
   const parseResult = RenameBodySchema.safeParse(body);
   if (!parseResult.success) {
-    validationError('Invalid rename request body.', parseResult.error.issues);
+    validationError(`Invalid rename request body: ${describeZodIssues(parseResult.error.issues)}`, parseResult.error.issues);
   }
   const { title, slug: newSlug } = parseResult.data;
 
@@ -4075,7 +4527,7 @@ export async function handleGetDialogueFile(
     const content = await readFile(filePath, 'utf-8');
     return { content };
   } catch (err: unknown) {
-    if (isNodeError(err) && err.code === 'ENOENT') {
+    if (hasErrorCode(err, 'ENOENT')) {
       notFound(`Dialogue file not found: '${filename}'.`);
     }
     throw err;
@@ -4212,19 +4664,11 @@ export async function handleGetChunkFile(
     const content = await readFile(filePath, 'utf-8');
     return { content };
   } catch (err: unknown) {
-    if (isNodeError(err) && err.code === 'ENOENT') {
+    if (hasErrorCode(err, 'ENOENT')) {
       notFound(`Chunk file not found: '${filename}'.`);
     }
     throw err;
   }
-}
-
-// ---------------------------------------------------------------------------
-// Internal Node.js error type guard (shared by file handlers above)
-// ---------------------------------------------------------------------------
-
-function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && 'code' in err;
 }
 
 // ---------------------------------------------------------------------------
@@ -4291,7 +4735,7 @@ export async function handleGetChunkText(
     const content = await readFile(mdPath, 'utf-8');
     return { content, cached: true };
   } catch (err: unknown) {
-    if (!isNodeError(err) || err.code !== 'ENOENT') {
+    if (!hasErrorCode(err, 'ENOENT')) {
       throw err;
     }
     // ENOENT — fall through to extraction.
@@ -4308,7 +4752,7 @@ export async function handleGetChunkText(
   try {
     chunkContent = await readFile(filePath, 'utf-8');
   } catch (err: unknown) {
-    if (isNodeError(err) && err.code === 'ENOENT') {
+    if (hasErrorCode(err, 'ENOENT')) {
       notFound(`Chunk file not found: '${filename}'.`);
     }
     throw err;
@@ -6969,6 +7413,157 @@ export async function startOrchestrator(
 }
 
 ```
+###  Path: `/mcp-server/gui/route-guards.ts`
+
+```ts
+/**
+ * GUI Route Guards
+ *
+ * Request-level guards run by `dispatchRoute()` (`gui/server.ts`) after a
+ * route matches and before its body is parsed. Each guard implements the
+ * `RouteGuard` type declared in `server.ts`: `(req, port) => void`, throwing
+ * `ApiError` to reject the request.
+ *
+ * These exist because the GUI server binds every network interface, not
+ * just loopback (`server.listen(port, …)` passes no host), and serves no
+ * authentication of its own. A route that reaches third-party code with the
+ * user's own secrets (the error-code provider routes) needs its own
+ * request-level defence against both a LAN client and a malicious web page
+ * open in the same browser (DNS rebinding / CSRF-style access), since the
+ * existing `Access-Control-Allow-Origin` header on the *response* does
+ * nothing to stop either from ever reaching the handler in the first place.
+ */
+
+import type { IncomingMessage } from 'node:http';
+import { ApiError } from '../src/gui/errors.js';
+
+/**
+ * Hostnames treated as loopback. `URL#hostname` keeps the brackets for an
+ * IPv6 literal (`new URL('http://[::1]').hostname === '[::1]'`), so both the
+ * bracketed and bare forms are listed defensively.
+ */
+const LOOPBACK_HOSTNAMES = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+
+function isLoopbackHostname(hostname: string): boolean {
+  return LOOPBACK_HOSTNAMES.has(hostname.toLowerCase());
+}
+
+/**
+ * True when `address` (as reported by `req.socket.remoteAddress`) is a
+ * loopback address: the IPv4 `127.0.0.0/8` range, the IPv6 `::1`, or either
+ * one's IPv4-mapped-IPv6 form (`::ffff:127.0.0.1`), which is what Node
+ * reports for an IPv4 connection on a dual-stack socket. This is checked
+ * against the actual TCP connection, not a client-supplied header, so it
+ * cannot be spoofed by a request's `Host` or `Origin` the way the checks
+ * below can.
+ */
+function isLoopbackAddress(address: string | undefined): boolean {
+  if (!address) {
+    return false;
+  }
+  const normalized = address.startsWith('::ffff:') ? address.slice('::ffff:'.length) : address;
+  return normalized === '::1' || normalized.startsWith('127.');
+}
+
+/** The default port a bare `protocol://host` (no explicit `:port`) resolves to. */
+function defaultPortFor(protocol: string): number {
+  return protocol === 'https:' ? 443 : 80;
+}
+
+/**
+ * Rejects a request whose actual TCP connection is not loopback, whose
+ * `Host` header is not a loopback address, and — when an `Origin` header is
+ * present — whose origin is not the GUI's own loopback origin at `port`.
+ *
+ * - `req.socket.remoteAddress` is checked first, against the real
+ *   connection the server accepted (`127.0.0.0/8`, `::1`, or the
+ *   IPv4-mapped-IPv6 form of either). This is the primary defence: unlike
+ *   every header below, a client cannot spoof which socket the OS handed
+ *   the server. A non-loopback `remoteAddress` is rejected with
+ *   `ApiError('FORBIDDEN')` regardless of what `Host`/`Origin` claim,
+ *   because this is what stops a direct, non-browser client elsewhere on
+ *   the LAN or network — the GUI server binds every interface, and such a
+ *   client fully controls both headers.
+ * - `Host` is required and must parse to a loopback hostname
+ *   (`localhost`, `127.0.0.1`, `[::1]`). A missing or malformed `Host`, or a
+ *   non-loopback one, is rejected with `ApiError('FORBIDDEN')`.
+ * - `Origin`, when present (browser-originated requests always send it for
+ *   a cross-origin `fetch`; same-origin requests may omit it), must also
+ *   resolve to a loopback hostname AND to the same `port` this server is
+ *   listening on. A request with no `Origin` header at all (e.g. a plain
+ *   `curl` from the same machine) is accepted on the `remoteAddress`/`Host`
+ *   checks alone — there is no browser origin to compare against.
+ *
+ * Checking `Host` *and* `Origin` in addition to `remoteAddress` is
+ * deliberate: `remoteAddress` alone stops a non-browser LAN/network client,
+ * but not a hostile web page open in a browser on the *same* machine — that
+ * request's `remoteAddress` is genuinely loopback, so `Host` and `Origin`
+ * remain the defence against that attacker class specifically. `Host` alone
+ * would accept a hostile page's cross-origin `fetch` to
+ * `http://localhost:{port}/...` (the attacker controls the URL, not the
+ * `Host` header, but the browser sets `Host` to the request's own
+ * destination, which is loopback here); `Origin` alone would accept a
+ * non-loopback client that spoofs (or genuinely carries) no `Origin` header
+ * at all, such as a non-browser LAN client.
+ */
+export function requireLoopbackRequest(req: IncomingMessage, port: number): void {
+  if (!isLoopbackAddress(req.socket.remoteAddress)) {
+    throw new ApiError('FORBIDDEN', 'This endpoint only accepts connections from a loopback address.');
+  }
+
+  const hostHeader = req.headers.host;
+  if (hostHeader === undefined) {
+    throw new ApiError('FORBIDDEN', 'This endpoint requires a Host header.');
+  }
+
+  let hostUrl: URL;
+  try {
+    hostUrl = new URL(`http://${hostHeader}`);
+  } catch {
+    throw new ApiError('FORBIDDEN', 'This endpoint rejected a malformed Host header.');
+  }
+
+  if (!isLoopbackHostname(hostUrl.hostname)) {
+    throw new ApiError('FORBIDDEN', 'This endpoint only accepts requests addressed to a loopback host.');
+  }
+
+  const originHeader = req.headers.origin;
+  if (originHeader === undefined) {
+    return;
+  }
+
+  let originUrl: URL;
+  try {
+    originUrl = new URL(originHeader);
+  } catch {
+    throw new ApiError('FORBIDDEN', 'This endpoint rejected a malformed Origin header.');
+  }
+
+  const originPort = originUrl.port === '' ? defaultPortFor(originUrl.protocol) : Number(originUrl.port);
+
+  if (!isLoopbackHostname(originUrl.hostname) || originPort !== port) {
+    throw new ApiError('FORBIDDEN', 'This endpoint only accepts requests from the GUI\'s own origin.');
+  }
+}
+
+/**
+ * Rejects a request body whose `Content-Type` is not `application/json`
+ * (a parameter such as `; charset=utf-8` is tolerated) with
+ * `ApiError('UNSUPPORTED_MEDIA_TYPE')`.
+ *
+ * Intended for `PUT`/`POST` routes carrying a body — pair with
+ * `requireLoopbackRequest` on those routes, never as a substitute for it:
+ * a `Content-Type` check alone does not stop a non-browser LAN client or a
+ * DNS-rebinding attack, since neither has to respect it.
+ */
+export function requireJsonContentType(req: IncomingMessage): void {
+  const contentType = req.headers['content-type'];
+  if (contentType === undefined || contentType.split(';', 1)[0]?.trim().toLowerCase() !== 'application/json') {
+    throw new ApiError('UNSUPPORTED_MEDIA_TYPE', 'This endpoint requires a Content-Type of application/json.');
+  }
+}
+
+```
 ###  Path: `/mcp-server/gui/server.ts`
 
 ```ts
@@ -6991,7 +7586,8 @@ import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { resolveLedgerRoot, resolveProjectDir, ORCHESTRATOR_LOGS_DIR, WORKSPACE_ROOT } from '../src/utils/ledger-root.js';
-import { loadStoresConfig, resolveGuiConfigPath } from '../src/storage/store-registry.js';
+import { loadStoresConfig, resolveGuiConfigPath, resolveErrorCodePluginDir } from '../src/storage/store-registry.js';
+import { initProviderRegistry, listProviderLoadErrors } from '../src/error-codes/provider-registry.js';
 import { StoreRouter } from '../src/storage/store-router.js';
 import { MultiStoreManager } from '../src/storage/multi-store-manager.js';
 import { setStoreContext, isStoreContextInitialized, getStoreRouter } from '../src/storage/store-context.js';
@@ -7072,6 +7668,14 @@ import {
   handleRebuildPersonas,
 } from './api-models.js';
 import { renderChunksToDialogue, renderChunksToStructured } from './chunk-renderer.js';
+import {
+  handleListErrorCodeProviders,
+  handleGetErrorCodeConfig,
+  handleUpdateErrorCodeConfig,
+  handleTestErrorCodeProvider,
+  handleListTemporaryErrorCodesGui,
+} from './api-error-codes.js';
+import { requireLoopbackRequest, requireJsonContentType } from './route-guards.js';
 
 // ---------------------------------------------------------------------------
 // Path resolution (ESM-safe)
@@ -7172,6 +7776,8 @@ export function apiErrorToStatus(code: string): number {
       return 400;
     case 'CONFLICT':
       return 409;
+    case 'UNSUPPORTED_MEDIA_TYPE':
+      return 415;
     default:
       return 500;
   }
@@ -7272,6 +7878,16 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 /**
+ * A request-level check `dispatchRoute` runs after a route matches and
+ * before `readJsonBody`. Throws `ApiError` (via `gui/route-guards.ts`'s
+ * helpers) to reject the request — `dispatchRoute`'s existing `ApiError`
+ * handling maps it to a status code and error body exactly as it would for
+ * a handler-thrown error, so a guard needs no dispatcher changes of its own
+ * beyond being invoked.
+ */
+export type RouteGuard = (req: IncomingMessage, port: number) => void;
+
+/**
  * A declarative body-parsing route entry for {@link buildRoutes} and
  * {@link dispatchRoute}.
  *
@@ -7286,6 +7902,9 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
  * - `statusCode` — Response status code (default `200`). Use `204` for empty
  *   responses — the dispatcher writes the header and skips `sendJson()`.
  * - `noBody` — When `true`, skip `readJsonBody()`.
+ * - `guards` — Optional, run in array order after the route matches and
+ *   before `readJsonBody`. A route with no `guards` behaves exactly as
+ *   before this field existed.
  */
 export interface Route {
   method: HttpMethod;
@@ -7293,6 +7912,7 @@ export interface Route {
   handler: (body: unknown, groups?: Record<string, string>, query?: URLSearchParams) => Promise<unknown>;
   statusCode?: number;
   noBody?: boolean;
+  guards?: readonly RouteGuard[];
 }
 
 // ---------------------------------------------------------------------------
@@ -8280,6 +8900,47 @@ function buildProjectRoutes(
  *     `/:slug/synthesis`, etc.) if they were declared before them, permanently
  *     breaking backward compatibility with pre-namespace clients.
  */
+/**
+ * Error-code provider routes (the GUI's Error Codes settings tab).
+ *
+ *   GET  /api/error-codes/providers
+ *   GET  /api/error-codes/config
+ *   PUT  /api/error-codes/config
+ *   POST /api/error-codes/test
+ *   GET  /api/error-codes/temporary
+ *
+ * Every route carries `requireLoopbackRequest`; the two body-carrying
+ * routes (`PUT`, `POST`) additionally carry `requireJsonContentType`. These
+ * routes reach third-party provider plugin code and the user's own stored
+ * secrets, which is why they are guarded rather than relying on the
+ * response-only `Access-Control-Allow-Origin` header the rest of the server
+ * sends — see `gui/route-guards.ts`'s module docblock.
+ */
+function buildErrorCodeRoutes(): Route[] {
+  return [
+    // GET /api/error-codes/providers
+    { method: 'GET', path: '/api/error-codes/providers', noBody: true,
+      guards: [requireLoopbackRequest],
+      handler: async () => handleListErrorCodeProviders() },
+    // GET /api/error-codes/config
+    { method: 'GET', path: '/api/error-codes/config', noBody: true,
+      guards: [requireLoopbackRequest],
+      handler: async () => handleGetErrorCodeConfig() },
+    // PUT /api/error-codes/config
+    { method: 'PUT', path: '/api/error-codes/config',
+      guards: [requireLoopbackRequest, requireJsonContentType],
+      handler: async (body) => handleUpdateErrorCodeConfig(body) },
+    // POST /api/error-codes/test
+    { method: 'POST', path: '/api/error-codes/test',
+      guards: [requireLoopbackRequest, requireJsonContentType],
+      handler: async (body) => handleTestErrorCodeProvider(body) },
+    // GET /api/error-codes/temporary[?limit]
+    { method: 'GET', path: '/api/error-codes/temporary', noBody: true,
+      guards: [requireLoopbackRequest],
+      handler: async (_, _groups, query) => handleListTemporaryErrorCodesGui(query) },
+  ];
+}
+
 export function buildRoutes(
   ledgerRoot: string,
   configPath: string,
@@ -8293,6 +8954,7 @@ export function buildRoutes(
     ...buildKnowledgeRoutes(ledgerRoot),
     ...buildModelRoutes(),
     ...buildStoreRoutes(ledgerRoot),
+    ...buildErrorCodeRoutes(),
     ...buildProjectRoutes(ledgerRoot, orchestratorLogsDir),
   ];
 }
@@ -8349,6 +9011,11 @@ export async function dispatchRoute(
       groups = (m.groups ?? {}) as Record<string, string>;
     }
     try {
+      if (route.guards) {
+        for (const guard of route.guards) {
+          guard(req, port);
+        }
+      }
       const body = route.noBody ? undefined : await readJsonBody(req);
       const result = await route.handler(body, groups, query);
       if (route.statusCode === 204) {
@@ -8459,6 +9126,20 @@ async function main(): Promise<void> {
   // Start the auto-archive background service. Reads auto_archive_days from
   // config; no-op if the setting is 0.
   startAutoArchiveTimer(ledgerRoot);
+
+  // Build the error-code provider registry (built-ins + third-party plugins)
+  // before the server starts accepting requests, so the Error Codes tab's
+  // providers list and settings forms reflect the same built-in and plugin
+  // set the MCP server loaded — both processes call initProviderRegistry()
+  // independently against the same plugin directory. A plugin load failure
+  // is logged and otherwise ignored — it must never stop GUI startup.
+  await initProviderRegistry({ pluginDir: resolveErrorCodePluginDir() });
+  const errorCodeLoadErrors = listProviderLoadErrors();
+  if (errorCodeLoadErrors.length > 0) {
+    process.stdout.write(
+      `[gui-server] error-codes: ${errorCodeLoadErrors.length} provider plugin(s) failed to load — see GUI Error Codes tab for details.\n`
+    );
+  }
 
   const server = createServer((req, res) => {
     handleRequest(req, res, ledgerRoot, configPath, port, orchestratorLogsDir, bootVersions).catch((err) => {

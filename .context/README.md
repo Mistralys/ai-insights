@@ -112,6 +112,7 @@ Once you've linked the CLI globally (`npm link`, see the [Developer Guide](docs/
 |----------|-------------|
 | [MCP Server](mcp-server/README.md) | Server architecture, tool reference, GUI, troubleshooting |
 | [Orchestrator](orchestrator/README.md) | Headless runner: setup, configuration, CLI |
+| [IDE and Runtime Settings](docs/references/ide-runtime-settings.md) | Claude Code and VS Code settings the ledger workflow depends on |
 | [Multi-Store Guide](docs/references/multi-store-guide.md) | Multiple ledger directories: setup, CLI reference, migration |
 | [Developer Guide](docs/references/development.md) | Workspace layout, CI, scripts, changelog workflow |
 | [Reference Docs Hub](docs/agents/references/README.md) | Workflow diagrams, CTX config, Deep Agents patterns |

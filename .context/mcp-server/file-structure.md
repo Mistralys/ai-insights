@@ -14,34 +14,40 @@ _SOURCE: MCP server source directory tree_
     └── changelog.md
     └── docs/
         ├── agents/
-        │   └── implementation-history/
-        │       ├── 2026-06-26-kill-button-silent-failure/
-        │       │   └── synthesis.md
-        │   └── project-manifest/
-        │       ├── README.md
-        │       ├── api-surface.md
-        │       ├── constraints-code-style.md
-        │       ├── constraints-storage.md
-        │       ├── constraints-testing.md
-        │       ├── constraints-workflow.md
-        │       ├── constraints.md
-        │       ├── curation-log.md
-        │       ├── data-flows.md
-        │       ├── file-tree.md
-        │       ├── tech-stack.md
-        │   └── workflow-specification/
-        │       └── README.md
-        │       └── auxiliary-systems.md
-        │       └── data-model.md
-        │       └── dependencies-and-rework.md
-        │       └── edge-cases.md
-        │       └── handoff.md
-        │       └── operations.md
-        │       └── pipeline-routing.md
-        │       └── recommendations.md
-        │       └── state-machines.md
-        │       └── walkthrough.md
+        │   ├── implementation-history/
+        │   │   ├── 2026-06-26-kill-button-silent-failure/
+        │   │   │   └── synthesis.md
+        │   ├── project-manifest/
+        │   │   ├── README.md
+        │   │   ├── api-surface.md
+        │   │   ├── constraints-code-style.md
+        │   │   ├── constraints-storage.md
+        │   │   ├── constraints-testing.md
+        │   │   ├── constraints-workflow.md
+        │   │   ├── constraints.md
+        │   │   ├── curation-log.md
+        │   │   ├── data-flows.md
+        │   │   ├── file-tree.md
+        │   │   ├── tech-stack.md
+        │   ├── workflow-specification/
+        │   │   └── README.md
+        │   │   └── auxiliary-systems.md
+        │   │   └── data-model.md
+        │   │   └── dependencies-and-rework.md
+        │   │   └── edge-cases.md
+        │   │   └── handoff.md
+        │   │   └── operations.md
+        │   │   └── pipeline-routing.md
+        │   │   └── recommendations.md
+        │   │   └── state-machines.md
+        │   │   └── walkthrough.md
+        ├── error-code-providers.md
+        ├── examples/
+        │   └── error-code-provider-example/
+        │       └── index.mjs
+        │       └── package.json
     └── gui/
+        ├── api-error-codes.ts
         ├── api-knowledge.ts
         ├── api-models.ts
         ├── api-repos.ts
@@ -78,6 +84,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── theme.js
         │   ├── utils.js
         │   ├── views/
+        │   │   └── config-error-codes.js
         │   │   └── config-model-registry.js
         │   │   └── config-persona-models.js
         │   │   └── config-stores.js
@@ -93,6 +100,7 @@ _SOURCE: MCP server source directory tree_
         │   │   └── run-log.js
         │   │   └── strategy.js
         │   │   └── work-package.js
+        ├── route-guards.ts
         ├── server.ts
     └── module-context.yaml
     └── package-lock.json
@@ -102,6 +110,20 @@ _SOURCE: MCP server source directory tree_
         ├── rename-repository.js
         ├── sync-version.js
     └── src/
+        ├── error-codes/
+        │   ├── allocator.ts
+        │   ├── config-store.ts
+        │   ├── plugin-loader.ts
+        │   ├── project-info.ts
+        │   ├── provider-api.ts
+        │   ├── provider-registry.ts
+        │   ├── provider-validation.ts
+        │   ├── providers/
+        │   │   ├── errorcode-incrementor-provider.ts
+        │   │   ├── file-provider.ts
+        │   ├── redact.ts
+        │   ├── settings-schema.ts
+        │   ├── temporary-codes.ts
         ├── gui/
         │   ├── auto-archive.ts
         │   ├── config.ts
@@ -131,6 +153,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── workflow-manifest-schema.ts
         ├── tools/
         │   ├── begin-work.ts
+        │   ├── error-codes.ts
         │   ├── help-content.ts
         │   ├── help.ts
         │   ├── knowledge.ts
@@ -138,6 +161,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── ping.ts
         │   ├── pipeline.ts
         │   ├── project-lifecycle.ts
+        │   ├── registry.ts
         │   ├── repository-context.ts
         │   ├── standalone-import.ts
         │   ├── work-package.ts
@@ -151,6 +175,7 @@ _SOURCE: MCP server source directory tree_
         │   └── constants.ts
         │   └── if-defined.ts
         │   └── ledger-root.ts
+        │   └── node-errors.ts
         │   └── path-validator.ts
         │   └── pipeline-maps.ts
         │   └── project-reset.ts
@@ -166,12 +191,30 @@ _SOURCE: MCP server source directory tree_
         │   └── workspace-versions.ts
         │   └── wp-id.ts
     └── tests/
+        ├── error-codes/
+        │   ├── allocator.test.ts
+        │   ├── config-store.test.ts
+        │   ├── errorcode-incrementor-provider.test.ts
+        │   ├── file-provider.test.ts
+        │   ├── fixtures/
+        │   │   ├── concurrent-allocation-worker.ts
+        │   │   ├── run-workers.ts
+        │   ├── no-private-config.test.ts
+        │   ├── plugin-loader.test.ts
+        │   ├── project-info.test.ts
+        │   ├── provider-contract.ts
+        │   ├── provider-registry.test.ts
+        │   ├── provider-validation.test.ts
+        │   ├── redact.test.ts
+        │   ├── settings-schema.test.ts
+        │   ├── temporary-codes.test.ts
         ├── gui-server.test.ts
         ├── gui/
         │   ├── README.md
         │   ├── api-chunk-text.test.ts
         │   ├── api-client.test.ts
         │   ├── api-dialogue-parse.test.ts
+        │   ├── api-error-codes.test.ts
         │   ├── api-knowledge.test.ts
         │   ├── api-models.test.ts
         │   ├── api-orchestrator.test.ts
@@ -188,10 +231,13 @@ _SOURCE: MCP server source directory tree_
         │   ├── chunk-renderer-text.test.ts
         │   ├── chunk-renderer.test.ts
         │   ├── client-rendering.test.ts
+        │   ├── config-error-codes-view.test.ts
         │   ├── config-helpers.test.ts
+        │   ├── config-tabs.test.ts
         │   ├── config.test.ts
         │   ├── dialogue-qa.test.ts
         │   ├── dispatch-route.test.ts
+        │   ├── errors.test.ts
         │   ├── handoff-config-integration.test.ts
         │   ├── helpers/
         │   │   ├── api-stubs.ts
@@ -227,6 +273,7 @@ _SOURCE: MCP server source directory tree_
         │   │   ├── get-queue.test.ts
         │   │   ├── resolve-progress.test.ts
         │   │   ├── validate-entry.test.ts
+        │   ├── route-guards.test.ts
         │   ├── route-structured-format.test.ts
         │   ├── route-table.test.ts
         │   ├── router-utils.test.ts
@@ -260,8 +307,6 @@ _SOURCE: MCP server source directory tree_
         │   ├── store-config.test.ts
         │   ├── validators.test.ts
         │   ├── work-package-schema.test.ts
-        ├── startup/
-        │   ├── tool-log-sync.test.ts
         ├── tools/
         │   ├── begin-work.test.ts
         │   ├── cancelled-status.test.ts
@@ -269,6 +314,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── claim-guard.test.ts
         │   ├── complete-pipeline-guards.test.ts
         │   ├── enrichment-resilience.test.ts
+        │   ├── error-codes.test.ts
         │   ├── knowledge-help.test.ts
         │   ├── knowledge-multi-store.test.ts
         │   ├── knowledge.test.ts
@@ -291,6 +337,7 @@ _SOURCE: MCP server source directory tree_
         │   ├── standalone-import.test.ts
         │   ├── start-pipeline-guards.test.ts
         │   ├── synthesis-terminal.test.ts
+        │   ├── tool-registry.test.ts
         │   ├── version-freshness.test.ts
         │   ├── work-package.test.ts
         │   ├── workflow-batch-actions.test.ts
@@ -302,6 +349,7 @@ _SOURCE: MCP server source directory tree_
         │   └── derive-repo-name.test.ts
         │   └── if-defined.test.ts
         │   └── ledger-root.test.ts
+        │   └── node-errors.test.ts
         │   └── path-validator.test.ts
         │   └── pipeline-maps.test.ts
         │   └── progress.test.ts

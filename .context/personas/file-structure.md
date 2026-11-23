@@ -189,6 +189,7 @@ _SOURCE: Directory tree_
         │   └── developer-dual-role.md
         │   └── developer-philosophy.md
         │   └── documentation-ownership.md
+        │   └── error-code-generation.md
         │   └── incident-logging.md
         │   └── insight-capture.md
         │   └── insight-compilation.md

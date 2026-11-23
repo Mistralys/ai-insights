@@ -114,6 +114,19 @@ vs_file_name: ledger-claude-coordinator.agent.md
 id: standalone-ledger-claude-coordinator
 cc_file_name: ledger-claude-coordinator.md
 changelog: |
+  3.4.0 (2026-11-23): New Archive Dispatch. When Synthesis ran at Claude Code's nesting limit, it had no dispatch tool,
+    so the Knowledge Archiver never ran and only a project comment recorded it. A new Monitoring Protocol step 10 reads
+    `project_comments` once the project is COMPLETE. Where Synthesis left that comment in a run this session seeded, the
+    coordinator dispatches `ledger-knowledge-archiver` with the comment's `cwd_path` and `project_storage_path`, asking
+    first in interactive mode. A project already COMPLETE at session start is reported, never archived, so no session
+    archives a project twice. The Final Report gained a `Knowledge` line.
+  3.3.0 (2026-10-29): Monitoring Protocol step 6 now tells a seeded agent's hand-back that ends in `HANDED OFF:`
+    (chain still running, wait) from one with no handoff (run stopped, continue at step 7 at once). A Repair Dispatch
+    ends on the Doctor's report. The Status Report's Result line and the run-activity constraints follow. The shared
+    `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it carries the final report, and
+    waits for the task notification only when the report says another agent is still running. Claude Code records the
+    notification that follows a final hand-back without starting a turn, so the old rule to wait for it stalled every
+    dispatch until the user typed.
   3.2.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
     reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
     own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
