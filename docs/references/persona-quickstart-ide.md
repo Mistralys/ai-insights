@@ -148,4 +148,5 @@ The Persona Curator modifies the source files, and you rebuild with `./menu.sh s
 
 - [Persona Design Guide](https://github.com/Mistralys/ai-insights/blob/main/personas/docs/persona-design-guide.md) — Full structural and stylistic reference
 - [Persona Quickstart — Web](persona-quickstart-web) — Guide for Gemini, Claude, ChatGPT, and Grok
+- [IDE and Runtime Settings](ide-runtime-settings) — Claude Code and VS Code settings the ledger workflow depends on
 - [AI Insights Repository](https://github.com/Mistralys/ai-insights) — The complete toolkit

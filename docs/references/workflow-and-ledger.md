@@ -187,7 +187,7 @@ The same workflow, the same ledger, and the same agent personas run under three 
 
 In VS Code Chat mode, the user invokes agents manually in GitHub Copilot Chat by pasting or opening a persona `.agent.md` file. Each stage runs in a new conversation window (or the same window with context switches).
 
-Each agent ends its stage with the handoff the ledger computes (see [The Agent Handoff Protocol](#the-agent-handoff-protocol)), which names the next agent to run; no agent decides the routing on its own. For automated progression inside an agent session, see [Claude Code (Coordinator as Main Agent)](#claude-code-coordinator-as-main-agent) — the Ledger Claude Coordinator is built for the Claude Code target only.
+Each agent ends its stage with the handoff the ledger computes (see [The Agent Handoff Protocol](#the-agent-handoff-protocol)), which names the next agent to run; no agent decides the routing on its own. For automated progression inside an agent session, see [Claude Code (Coordinator as Main Agent)](#claude-code-coordinator-as-main-agent) — the Ledger Claude Coordinator is built for the Claude Code target only. The VS Code settings that may affect agent discovery and nested handoffs, none of them tested with these personas yet, are listed in [IDE and Runtime Settings](ide-runtime-settings.md#vs-code).
 
 ### Claude Code (Coordinator as Main Agent)
 
@@ -208,7 +208,7 @@ and give it the path to a finished plan document. The persona source is `persona
 3. Reads `ledger_get_project_status` to see how far the chain got — the nested handoffs are visible only in the ledger
 4. Asks the ledger again and reseeds where it points, until the project is COMPLETE
 
-Chains usually stop short of COMPLETE on a depth limit — Claude Code's limit on sub-agent nesting, or the ledger's own auto-handoff depth ceiling — so several restarts per project are the normal shape of a run, not a failure. How Claude Code runs a dispatched sub-agent in the background and signals its end is documented in [Claude Code — Sub-Agent Dispatch and Waiting](../agents/references/claude-code-subagent-dispatch.md).
+Chains usually stop short of COMPLETE on a depth limit — Claude Code's limit on sub-agent nesting, or the ledger's own auto-handoff depth ceiling — so several restarts per project are the normal shape of a run, not a failure. How Claude Code runs a dispatched sub-agent in the background and signals its end is documented in [Claude Code — Sub-Agent Dispatch and Waiting](../agents/references/claude-code-subagent-dispatch.md). Claude Code's nesting limit is raised with a setting each machine needs; see [IDE and Runtime Settings](ide-runtime-settings.md).
 
 **Interactive mode** (default): The coordinator reports after every run and waits for confirmation before restarting a stalled chain.
 

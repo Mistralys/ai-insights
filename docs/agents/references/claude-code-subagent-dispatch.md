@@ -41,7 +41,7 @@ In Claude Code's auto permission mode, each dispatch can send two messages back 
 
 A ledger chain nests one level deeper with every handoff: the coordinator dispatches agent A, A dispatches B, and so on. By default a sub-agent can spawn sub-agents only up to three layers below the main conversation. At the limit, Claude Code withholds the `Agent` tool from every sub-agent except a fork (sub-agents docs). The default has changed between versions: five layers in 2.1.172–2.1.216, one in 2.1.217–2.1.218, three from 2.1.219.
 
-A full nine-stage chain therefore depends on raising the limit with `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`. The user's settings set it to `42`. On a machine without it, the chain stops at the third layer, because the agent there has no tool to hand off with.
+A full nine-stage chain therefore depends on raising the limit with `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`. The variable is not set by default, so each machine that runs the pipeline has to set it; [IDE and Runtime Settings](../../references/ide-runtime-settings.md#claude_code_max_subagent_spawn_depth) records where and why. On a machine without it, the chain stops at the third layer, because the agent there has no tool to hand off with.
 
 ## Do Not Pass name or run_in_background
 
