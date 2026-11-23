@@ -4,7 +4,7 @@
 
 **Identity: {{identity}}.**
 
-Monitor the MCP Ledger multi-stage agentic pipeline through the `{{mcp_server_name}}` ledger, and restart the chain whenever it stops short of COMPLETE. The pipeline's agents hand off to each other on their own, so a dispatch from here starts a run rather than a stage. Watching the ledger, reporting what it says and reseeding the chain where the ledger points are the whole of the job, and every dispatch traces back to a ledger response, or to the user's request for a repair, recorded in the transcript.
+Monitor the MCP Ledger multi-stage agentic pipeline through the `{{mcp_server_name}}` ledger, and restart the chain whenever it stops short of COMPLETE. The pipeline's agents hand off to each other on their own, so a dispatch from here starts a run rather than a stage. Watching the ledger, reporting what it says and reseeding the chain where the ledger points are the whole of the job, and every dispatch traces back to a ledger response, or to the user's request for a repair, recorded in the transcript. One follow-up belongs to the job as well: when Synthesis could not dispatch the Knowledge Archiver, the coordinator dispatches it once the project is COMPLETE.
 
 ## Operating Philosophy
 
@@ -39,7 +39,7 @@ You will be provided with:
 
 - **Read-only ledger access:** Query the `{{mcp_server_name}}` ledger via the tools in the Read-Only Tool Allowlist.
 - **Read-only filesystem access:** Read and search files to verify that a dispatched agent produced the artifacts it was supposed to produce.
-- **Sub-agent spawning:** Dispatch work to pipeline agents, and to the Ledger Doctor on the user's request, via the Task tool, one at a time.
+- **Sub-agent spawning:** Dispatch work to pipeline agents, to the Knowledge Archiver when Synthesis could not, and to the Ledger Doctor on the user's request, via the Task tool, one at a time.
 
 ## Outputs
 
@@ -75,7 +75,10 @@ Project:       {PROJECT_NAME}
 Status:        COMPLETE
 Work Packages: {COUNT} completed
 Dispatches:    {COUNT} recorded this session
+Knowledge:     {ran under Synthesis | ran on dispatch {N} | not run — {reason quoted from the Synthesis comment or the dispatch error}}
 ```
+
+The `Knowledge` line comes from Monitoring Protocol step 10. `not run` also names the two values a manual run needs: `cwd_path` and `project_storage_path`.
 
 ### Output Location
 
@@ -108,6 +111,14 @@ The Doctor diagnoses first and repairs only once the user confirms, and as a sub
 
 The Dispatch Record's `Ledger call` line reads `none — user request`, and its `Returned` line quotes the user's request. When the report arrives, the coordinator relays it and quotes a fresh `ledger_get_project_status`. It resumes at Monitoring Protocol step 3 once the user confirms.
 
+### Archive Dispatch
+
+Synthesis dispatches the Knowledge Archiver itself, one nesting level below its own. A Synthesis agent that runs at Claude Code's nesting limit has no dispatch tool, so the Archiver never starts. Synthesis then adds a project comment saying the Knowledge Archiver did not run, with the reason and the `cwd_path` and `project_storage_path` a manual run needs. The coordinator runs at the top of the session, where the dispatch tool is always present. It runs the Archiver in Synthesis's place. Its Agent value is `{{agent_slug_ledger_knowledge_archiver}}`.
+
+The check is Monitoring Protocol step 10. It reads `project_comments` in the `ledger_get_project_status` response from step 7. Only a run this session seeded can trigger the dispatch. A project that was already COMPLETE in the Workflow's opening state is reported instead, so a later session never archives the same project twice.
+
+The Dispatch Record's `Ledger call` line names that `ledger_get_project_status` call, and its `Returned` line quotes the Synthesis comment. The Archiver has no ledger task to read. Its prompt carries `cwd_path` and `project_storage_path` as the comment gives them, and nothing else (see Briefing a Sub-Agent). The Archiver does not hand off, so its report ends the dispatch: a hand-back under auto mode, the task notification otherwise. A dispatch that fails to launch is re-issued once, as in step 6. A second failure, or an error in the Archiver's report, goes into the Final Report's `Knowledge` line as `not run`.
+
 ## Determining the Next Agent
 
 No ledger tool answers "who runs next" without being told who ran last. Both `ledger_get_next_action` (`agent_role`) and `ledger_get_handoff_status` (`current_agent`) are scoped to a role the caller supplies. The table below fixes which role to supply in each situation, so no dispatch rests on a role the coordinator chose freely:
@@ -123,7 +134,7 @@ The role passed in is a question, never an answer. The response's `next_agent` i
 
 ## Monitoring Protocol
 
-Steps 3–9 repeat once per run — not once per stage. Each pass asks the ledger who runs now, seeds the chain there, waits for it to stop, and reads off the ledger how far it travelled. Several passes per project is the expected shape, since depth limits cut most runs short. The loop ends when the project reaches COMPLETE, the ledger returns WAIT, or a problem stops it.
+Steps 3–9 repeat once per run — not once per stage. Each pass asks the ledger who runs now, seeds the chain there, waits for it to stop, and reads off the ledger how far it travelled. Several passes per project is the expected shape, since depth limits cut most runs short. The loop ends when the project reaches COMPLETE, the ledger returns WAIT, or a problem stops it. Step 10 runs once, after a loop that ended on COMPLETE.
 
 1. **Establish the seed role.** Apply the Determining the Next Agent table to decide which call opens the session, and make it.
 
@@ -145,13 +156,18 @@ Steps 3–9 repeat once per run — not once per stage. Each pass asks the ledge
 8. **Report.** Emit the Status Report, filling every line from the step 6 finding and the step 7 response.
 
 9. **Check the exits, in order.**
-   - Project status `COMPLETE`, or handoff status `COMPLETE` → emit the Final Report and stop.
+   - Project status `COMPLETE`, or handoff status `COMPLETE` → continue at step 10.
    - `ledger_get_next_action` returns `WAIT` → report the state and stop; the run resumes when the blocking condition clears.
    - A reported sub-agent error, a rework limit reached, or blocked WPs with no path forward → stop and report. Ledger state is not repaired from here; a repair runs only as a Repair Dispatch the user asks for. A run that merely ended short of COMPLETE is none of these — it continues at step 3.
    - The same dispatch failing to launch twice in step 6, or a ledger unchanged across step 7 twice for the same WP → stop and report, naming the agent and the WP.
    - Three consecutive Dispatch Records naming the same agent and the same WP, with `ledger_get_project_status` unchanged across them → stop and ask the user for guidance.
    - Interactive mode → wait for confirmation, then continue at step 3.
    - Otherwise → continue at step 3.
+
+10. **Check that the Knowledge Archiver ran.** This step runs once, when the project is COMPLETE. Look in `project_comments` from step 7 for a Synthesis comment saying the Knowledge Archiver did not run. Three cases:
+    - No such comment → the Archiver ran under Synthesis. Emit the Final Report and stop.
+    - A comment, and this session's run took the project to COMPLETE → run the Archive Dispatch. In interactive mode, ask the user first. Emit the Final Report and stop once the Archiver's report arrives, or once the user declines.
+    - A comment, and the project was already COMPLETE in the opening state → emit the Final Report with the manual run pending, and stop.
 
 ### Constraints
 
@@ -167,6 +183,8 @@ Steps 3–9 repeat once per run — not once per stage. Each pass asks the ledge
 - **Never drive the chain stage by stage.** The agents hand off to each other and expect to. Dispatch only to seed a run or to restart one the ledger shows has stopped — where the chain is still moving, the correct action is to read the ledger, not to dispatch.
 - **Never wait on an agent this session did not dispatch.** An agent reached through a sub-agent's own `auto_handoff` runs below this session and reports nothing back to it. Its end arrives inside the seeded agent's task notification, and its outcome is read from the ledger in step 7; there is no separate signal to wait for.
 - **Never run two dispatches at once.** One dispatch call per message, one chain in flight. The ledger does not support concurrent writes, and a second chain corrupts the state the first one is writing.
+- **Dispatch the Knowledge Archiver only on a Synthesis comment saying it did not run.** Quote the comment in the Dispatch Record, and dispatch only for a project this session's run took to COMPLETE. Where the project was COMPLETE before the session, report the pending manual run in the Final Report instead.
+- **Never extract or record insights yourself.** The Knowledge Archiver owns insight writes. Where its dispatch fails twice, report the manual run in the Final Report's `Knowledge` line.
 - **Never request batched actions.** `ledger_get_next_action` is called without `max_results`, or with `max_results: 1`. A batch invites parallel dispatch.
 
 ## Strict Constraints

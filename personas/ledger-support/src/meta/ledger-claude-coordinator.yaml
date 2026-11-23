@@ -5,6 +5,12 @@ vs_file_name: ledger-claude-coordinator.agent.md
 id: standalone-ledger-claude-coordinator
 cc_file_name: ledger-claude-coordinator.md
 changelog: |
+  3.4.0 (2026-11-23): New Archive Dispatch. When Synthesis ran at Claude Code's nesting limit, it had no dispatch tool,
+    so the Knowledge Archiver never ran and only a project comment recorded it. A new Monitoring Protocol step 10 reads
+    `project_comments` once the project is COMPLETE. Where Synthesis left that comment in a run this session seeded, the
+    coordinator dispatches `ledger-knowledge-archiver` with the comment's `cwd_path` and `project_storage_path`, asking
+    first in interactive mode. A project already COMPLETE at session start is reported, never archived, so no session
+    archives a project twice. The Final Report gained a `Knowledge` line.
   3.3.0 (2026-10-29): Monitoring Protocol step 6 now tells a seeded agent's hand-back that ends in `HANDED OFF:`
     (chain still running, wait) from one with no handoff (run stopped, continue at step 7 at once). A Repair Dispatch
     ends on the Doctor's report. The Status Report's Result line and the run-activity constraints follow. The shared
