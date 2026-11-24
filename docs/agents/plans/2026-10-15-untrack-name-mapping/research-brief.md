@@ -147,3 +147,29 @@ Files mentioning `name-mapping`: root `AGENTS.md` (L257 Cross-System Dependencie
 - Short-term vision: "make the whole project as easy as possible to set up and use … as little friction as possible". A fresh clone or a pull that deletes the mapping must not leave the MCP server or GUI unable to start — this plan makes the missing state survivable and self-explaining.
 - Long-term vision: reliability across Windows, macOS, Linux — all new code uses `path`/`fs` only.
 - `ledger_search_insights` ("name-mapping AGENT_NAMES model-registry assignments rebuild"): no relevant insights for this repository.
+
+## Refresh Verification (2026-11-24)
+
+Re-verified against `main` at `737d83e0`, which is 84 commits after the plan was written. The plan has not been implemented: the file is still tracked (`git ls-files`), it is not in `.gitignore`, and `AGENT_NAMES` is still loaded at module load.
+
+### Unchanged (still valid)
+- `mcp-server/src/utils/constants.ts` L10/L13 (`createRequire`, `_require`, whose only use is L205), L132/L155 (types) and L204 (`AGENT_NAMES`). `mcp-server/src/tools/workflow-handoff.ts` L7/L227. The only test importers are `auto-handoff.test.ts` L8 and `handoff-config-integration.test.ts` L29 (assertions at L134–136).
+- `mcp-server/src/utils/ledger-root.ts` `WORKSPACE_ROOT`. `mcp-server/gui/api-models.ts` L49 import, L90 `nameMappingPath()`, L243 `computeStale()`, L530 `handleGetPersonas()`, L570 `handleRebuildPersonas()` with the `buildInProgress` guard. `api-models.test.ts` L35 still mocks `ledger-root.js`.
+- `mcp-server/package.json` L14 `pretest`. `scripts/lib/name-mapping.js` exports are unchanged. `scripts/build-personas.js` L106 inline path. `scripts/lib/health-checks.js` L30 `WORKSPACE_ROOT`. `scripts/cli.js` L67 `PERSONAS_DIR`. `scripts/run-gui.js` exists.
+- `stale-check.js`, `app.js` L7 `StaleCheck.init()`, and the `--color-banner-stale-*` tokens (styles.css L107–109, L231–233).
+
+### Moved line numbers
+- `mcp-server/gui/server.ts`: constants import at L25, `buildConfigRoutes()` at L506, `buildModelRoutes()` at L700. `mcp-server/gui/api.ts` constants import at L28.
+- `config-persona-models.js`: pre-build state at L186–192 (message L188, `#pm-prebuild-rebuild-btn` label L190), stale-banner button L204, action-bar button L375, `pmDoRebuild()` L643.
+- `index.html`: `api-client.js?v=7`, `config-persona-models.js?v=2`, `stale-check.js?v=2`, `app.js?v=2`.
+
+### New facts affecting the plan
+- **Config tab visit tokens:** `pmDoRebuild()` captures `pmVisit` and returns early when the visit is stale, after clearing `pmIsBuilding` (`mcp-server/gui/docs/agents/project-manifest/constraints.md` L525–542, integration point 5). Existing rebuild tests are in `mcp-server/tests/gui/config-tabs.test.ts`.
+- **Hub manifest restructure:** root `AGENTS.md` no longer has the Cross-System Dependencies or Root-Level Tooling tables, and root `CLAUDE.md` is `@AGENTS.md`. The name-mapping facts now live in `docs/agents/project-manifest/{generated-artefacts,cross-system-dependencies,live-workspace,root-tooling,development-commands,constraints}.md`. `docs/agents/project-manifest/README.md` no longer mentions the file.
+- **`generated-artefacts.md`:** L27 lists the file as *Tracked → Runtime-coupled* (citing `constants.ts` `AGENT_NAMES`). L97–98 call it tracked. L108 *Known Contradictions* names this plan as pending. An *Ignored Generated Artefacts* section exists at L42.
+- **`live-workspace.md`** L14/L25: says the server loads the file at start-up. The root `AGENTS.md` Failure Protocol makes updating this file a MUST when what the server reads changes.
+- **Module Generated Artefacts rules:** `personas/docs/agents/project-manifest/constraints.md` L347–354, `mcp-server/docs/agents/project-manifest/constraints.md` L671, `mcp-server/docs/agents/project-manifest/tech-stack.md` L250, and `personas/docs/persona-build-system.md` L837/L958.
+- **Changelog Convention rule 9** (one WIP entry, never a second): `mcp-server/changelog.md` already has `## v2.12.0 - **WIP; UNRELEASED**`. The root `changelog.md` top entry is v2.15.0 and is not marked WIP; the last tag is `2.14.1`.
+- **Verification by Change Type** (`development-commands.md`): MCP server code also requires `npx tsc --noEmit`.
+- Git writes are restricted to the user or the Git Committer persona (`docs/agents/project-manifest/constraints.md` → Git Operations).
+- `ledger_search_insights` re-run: still no insight about name mapping or model-assignment loading, so there is nothing to reconcile.
