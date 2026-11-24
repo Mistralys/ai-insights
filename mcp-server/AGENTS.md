@@ -99,7 +99,7 @@ LIVE/DEV port convention. Do not document GUI rules in the manifest above.
 
 | Change Made | Manifest Documents to Update | Notes |
 |-------------|------------------------------|-------|
-| **Add new MCP tool** | `api-surface.md`, `file-tree.md` (if new file), `data-flows.md` (if new flow) | Document signature, parameters, and data flow; register the module in `src/tools/registry.ts`'s `TOOL_MODULES` and add a `TOOL_HELP` entry (`src/tools/help-content.ts`) — `tests/tools/tool-registry.test.ts` fails on either omission |
+| **Add new MCP tool** | `api-surface.md`, `file-tree.md` (if new file), `data-flows.md` (if new flow) | Document signature, parameters, and data flow; register the module in `src/tools/registry.ts`'s `TOOL_MODULES` and add a `TOOL_HELP` entry (`src/tools/help-content.ts`) — `tests/tools/registry.test.ts` and `tests/tools/help-content-coverage.test.ts` fail on the respective omission |
 | **Add new class/service** | `api-surface.md`, `file-tree.md` | Document public constructors, properties, and methods |
 | **Add new dependency** | `tech-stack.md` | Add to Production or Development dependencies table |
 | **Add new file/directory** | `file-tree.md` | Add to tree structure with brief annotation |

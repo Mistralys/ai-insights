@@ -279,9 +279,6 @@ mcp-server/
     │   ├── validators.test.ts
     │   └── work-package-schema.test.ts  # Zod parse-level tests (24 tests)
     │
-    ├── startup/                 # Startup-time static analysis tests
-    │   └── tool-log-sync.test.ts  # Compares the registry's TOOL_MODULES/registerAllTools() output against a source-text scan of server.registerTool() calls across src/tools/*.ts, catching a module left out of TOOL_MODULES (synthetic missing-module and duplicate-name cases) and asserting src/index.ts calls registerAllTools( with no hand-maintained "Registered tools: ledger_" literal — without bootstrapping the server at runtime
-    │
     ├── storage/                 # Storage layer tests
         ├── cross-device-portability.test.ts  # 6 tests for cross-device portability (AC-5, AC-6 of WP-004): searchKnowledge() cross-store dedup by UUID insight id (first-seen wins), listKnowledge() cross-store dedup, and dynamic store discovery — adding a new store path to StoreRouter immediately exposes its .repositories.json and projects via listAllProjects() and getMergedRegistry() without any additional registration step (cross-device ledger sync plan, WP-004)
         ├── knowledge-store-exclusion.test.ts  # Tests that knowledge store paths are excluded from project storage operations
@@ -299,7 +296,6 @@ mcp-server/
         ├── store-router.test.ts        # 21 unit tests for StoreRouter (cross-device ledger sync plan, WP-003): all 6 ACs — legacy-mode delegation, store-order priority, first/second-only/both-stores routing, "not registered in any store" error; plus resolveStoreForRepo null return, resolveDefaultStore, getAllStorePaths defensive copy, isMultiStoreMode true/false; mkdirSync called for each configured store path on construction
         ├── store-context.test.ts       # 8 unit tests for store-context.ts singleton accessor (cross-device ledger sync plan, WP-005): getStoreRouter() and getMultiStoreManager() throw before init (tested in a 'before setStoreContext()' describe block that must remain first in the file — Vitest runs describe blocks sequentially so the singleton is undefined only because no setStoreContext() call has run yet); after-init tests: getStoreRouter()/getMultiStoreManager() return the set instances, legacy mode isMultiStoreMode()=false, multi-store mode isMultiStoreMode()=true, idempotent re-initialization (later calls overwrite), StoreRouter auto-creates configured directories on construction
         └── slug-resolution.test.ts  # Tests for slug resolution across project namespaces
-    │
     ├── tools/                   # Tool-level tests
     │   ├── begin-work.test.ts
     │   ├── cancelled-status.test.ts
@@ -320,7 +316,7 @@ mcp-server/
     │   ├── pipeline.test.ts
     │   ├── project-lifecycle.test.ts
     │   ├── project-lifecycle-multi-store.test.ts  # 13 integration tests for multi-store project lifecycle (cross-device ledger sync plan, WP-007): ledger_list_projects tags projects from all stores with store_id/store_label (AC1), ledger_initialize_project routes to the correct store via StoreRouter (AC2), unregistered repo returns "not registered in any store" error (AC3), detectProject returns MULTI_STORE_AMBIGUOUS with tagged candidates on cross-store cwd collision (AC4), single-store / legacy mode behavior is unchanged (AC5)
-    │   ├── registry.test.ts     # Tests for src/tools/registry.ts: registerAllTools() forwards calls to the real registerTool with original arguments and returns its result, returns registered names in registration order, throws "Duplicate tool registration: <name>" on a repeated name, and TOOL_MODULES is frozen with unique ids; also exercises the real TOOL_MODULES end to end
+    │   ├── registry.test.ts     # Tests for src/tools/registry.ts: registerAllTools() forwarding, registration order, duplicate-name detection ("Duplicate tool registration: <name>"), TOOL_MODULES frozen/unique-id invariants, the server's own registerTool left untouched, completeness against a source scan of src/tools/*.ts (with a synthetic left-out-module case), and src/index.ts wiring (no hand-written startup-log literal)
     │   ├── reopen-cancelled-wp.test.ts  # 22 tests for ledger_reopen_cancelled_wp: PM-only guard, non-CANCELLED status guards, core side effects (dep-aware READY/BLOCKED branching, field clearing, counter adjustment, audit comment, pipeline history preservation), cascade reblock (READY and IN_PROGRESS downstream dependents), and state machine invariant preservation
     │   ├── rework-circuit-breaker.test.ts
     │   ├── runner-integration.test.ts  # 9 integration tests (WP-005 verification of WP-002 ACs): runner fields in root index response and on disk (AC1), runner fields in .meta.json (AC2), graceful 'unknown' default when getClientInfo() returns undefined (AC3), no runner info written to stdout (AC5); uses vi.mock hoisting to control getClientInfo() return value per test group; covers all four runner types (orchestrator, vscode, claude-code, unknown)
@@ -329,7 +325,6 @@ mcp-server/
     │   ├── start-path-parity.test.ts  # startPipeline vs beginWork parity: both tools route through the shared applyPipelineStart() helper; same isError and persisted rework_counts across prerequisite, auto-cancelled, rework-limit and duplicate-outside-active-stages scenarios, exercised through each tool's own entry point (not the helper directly — see pipeline-start.test.ts for that)
     │   ├── start-pipeline-guards.test.ts
     │   ├── synthesis-terminal.test.ts
-    │   ├── tool-registry.test.ts  # Replaces tests/startup/tool-log-sync.test.ts: scans every src/tools/*.ts file for server.registerTool( call sites and asserts each resulting name is registered by TOOL_MODULES, that registerAllTools returns a duplicate-free name set (and restores the original registerTool method afterward), and that every registered name has a TOOL_HELP entry containing "# {name}"
     │   ├── update-pipeline-stages.test.ts  # Unit/guard tests for ledger_update_pipeline_stages: full 7-guard-and-response surface — PM-only, structural/fail-route validation (empty, unknown, duplicate, out-of-order, fail-route-gap lists), CANCELLED/COMPLETE/IN_PROGRESS-pipeline rejections, executed-stage removal rejection, never-run-stage removal + assigned_to clearing (owned vs. not-owned), guard-ordering proofs (role-before-validation, validation-before-CANCELLED, COMPLETE-before-removal), audit comment, warning passthrough, and rework-limit-at-MAX_REWORK_COUNT next-step surfacing
     │   ├── version-freshness.test.ts
     │   ├── work-package.test.ts
@@ -337,7 +332,6 @@ mcp-server/
     │   ├── workflow-handoff.test.ts
     │   ├── workflow-next-action.test.ts
     │   └── workflow-rework-loop.test.ts
-    │
     └── utils/                   # Utility function tests
         ├── agent-registry.test.ts
         ├── constants-no-io.test.ts  # Asserts constants.ts no longer exports AGENT_NAMES and its source no longer references createRequire or personas/name-mapping.json (no file I/O remains in constants.ts)

@@ -28,12 +28,12 @@ export interface ToolModule {
 /**
  * The full, ordered set of tool modules registered by the MCP server at
  * startup. This is the single source of truth for which modules contribute
- * tools: `index.ts`'s startup log, `tests/startup/tool-log-sync.test.ts`,
+ * tools: `index.ts`'s startup log, `tests/tools/registry.test.ts`,
  * and `tests/tools/schema-integrity.test.ts` all derive their expectations
  * from this list instead of maintaining their own hand-written copies.
  *
  * Frozen via `Object.freeze` to catch accidental runtime mutation. A new
- * tool module is added here as a single line; `tool-log-sync.test.ts` fails
+ * tool module is added here as a single line; `registry.test.ts` fails
  * if a module that calls `server.registerTool` is left out.
  */
 export const TOOL_MODULES: readonly ToolModule[] = Object.freeze([

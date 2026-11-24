@@ -12,7 +12,7 @@
  *   instead.
  * - No sentinel secret appears in any response.
  * - Both tools are registered (TOOL_MODULES / help coverage is coverved by
- *   tests/tools/tool-registry.test.ts).
+ *   tests/tools/registry.test.ts and help-content-coverage.test.ts).
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';

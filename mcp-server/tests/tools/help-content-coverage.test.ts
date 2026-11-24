@@ -58,6 +58,11 @@ describe('help-content-coverage — real registry cross-check', () => {
     expect(missing, `Missing TOOL_HELP entries for: ${missing.join(', ')}`).toEqual([]);
   });
 
+  it('every registered tool help entry contains its own "# {name}" heading', () => {
+    const missing = registeredNames.filter((name) => !TOOL_HELP[name]?.includes(`# ${name}`));
+    expect(missing, `TOOL_HELP entries lacking a "# {name}" heading: ${missing.join(', ')}`).toEqual([]);
+  });
+
   it('every registered tool has an overview table row', () => {
     const missing = findMissingOverviewRows(registeredNames, overviewText);
     expect(missing, `Missing overview table rows for: ${missing.join(', ')}`).toEqual([]);

@@ -388,7 +388,7 @@ import { LedgerStore } from '../storage/ledger-store';
 
 **Rule:** A new `src/tools/*.ts` module that calls `server.registerTool(` must be added to `TOOL_MODULES` in `src/tools/registry.ts`. Do not call a tool module's `register()` directly from `src/index.ts`, and do not add the tool's name to a separate hand-written list anywhere — `src/index.ts`'s startup log and `tests/tools/schema-integrity.test.ts`'s tool set are both derived from `TOOL_MODULES` via `registerAllTools`, not maintained independently. Add a `TOOL_HELP` entry (`src/tools/help-content.ts`) for every new tool name in the same change.
 
-**Rationale:** Before this registry existed, the same tool-name list was hand-maintained in three places (`index.ts`'s registration calls, `index.ts`'s startup log literal, and `schema-integrity.test.ts`'s import list) — one of which had already drifted silently, omitting two registered tools. A single derived list removes the drift entirely: `tests/tools/tool-registry.test.ts` fails immediately if a tool module exists in source but is missing from `TOOL_MODULES`, or if a registered tool has no `TOOL_HELP` entry.
+**Rationale:** Before this registry existed, the same tool-name list was hand-maintained in three places (`index.ts`'s registration calls, `index.ts`'s startup log literal, and `schema-integrity.test.ts`'s import list) — one of which had already drifted silently, omitting two registered tools. A single derived list removes the drift entirely: `tests/tools/registry.test.ts` fails immediately if a tool module exists in source but is missing from `TOOL_MODULES`, and `tests/tools/help-content-coverage.test.ts` fails if a registered tool has no `TOOL_HELP` entry.
 
 **Anti-pattern:**
 ```typescript

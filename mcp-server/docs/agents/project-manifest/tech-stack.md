@@ -153,7 +153,7 @@ Each tool category has its own module with:
 - Async handler functions
 - A `register(server: McpServer)` export that registers all tools
 
-**Registry-derived registration:** `src/tools/registry.ts` exports a frozen `TOOL_MODULES` array (one `{ id, register }` entry per tool module) and `registerAllTools(server, modules?)`, which calls each module's `register()` through a recording shim around `server.registerTool()` and returns the registered tool names in registration order. `src/index.ts` calls `registerAllTools(server)` once at startup — there is no hand-maintained list of tool modules or tool names anywhere else; the startup log is built directly from the returned names, and `tests/startup/tool-log-sync.test.ts` / `tests/tools/schema-integrity.test.ts` both derive their expected tool sets from the same function. A new tool module becomes a single line added to `TOOL_MODULES`.
+**Registry-derived registration:** `src/tools/registry.ts` exports a frozen `TOOL_MODULES` array (one `{ id, register }` entry per tool module) and `registerAllTools(server, modules?)`, which calls each module's `register()` through a recording shim around `server.registerTool()` and returns the registered tool names in registration order. `src/index.ts` calls `registerAllTools(server)` once at startup — there is no hand-maintained list of tool modules or tool names anywhere else; the startup log is built directly from the returned names, and `tests/tools/registry.test.ts` / `tests/tools/schema-integrity.test.ts` both derive their expected tool sets from the same function. A new tool module becomes a single line added to `TOOL_MODULES`.
 
 **Tool Modules (current `TOOL_MODULES` order):**
 - `project-lifecycle.ts` — Project initialization and status
