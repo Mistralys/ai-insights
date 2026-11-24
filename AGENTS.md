@@ -107,7 +107,7 @@ Changes under `mcp-server/`, the GUI included, follow the *Manifest Maintenance 
 | Add or change a workspace-wide binding rule | [`constraints.md`](docs/agents/project-manifest/constraints.md) (hub), and its [Critical Rules](docs/agents/project-manifest/constraints.md#critical-rules) digest when the rule is high-impact |
 | Add a generator, a tracked generated file or a changed source-to-artefact dependency, in any module (personas, MCP server, orchestrator) or at the root | [`generated-artefacts.md`](docs/agents/project-manifest/generated-artefacts.md) (hub) — the single document for all modules; no module manifest keeps a copy |
 | Add or change a cross-system sync point | [`cross-system-dependencies.md`](docs/agents/project-manifest/cross-system-dependencies.md) (hub) |
-| Restructure workspace | `mcp-server/…/file-tree.md`, this `AGENTS.md`, and the generated context docs (regeneration is covered in [`generated-artefacts.md`](docs/agents/project-manifest/generated-artefacts.md)) |
+| Restructure workspace | `mcp-server/…/file-tree.md`, this `AGENTS.md` |
 | Change workflow logic (state machines, routing, handoffs, edge cases) | `mcp-server/docs/agents/workflow-specification/` **first**, then implementation code, then tests, then `mcp-server/docs/agents/project-manifest/constraints-workflow.md` |
 | Change changelog convention | [`constraints.md` → Changelog Convention](docs/agents/project-manifest/constraints.md#changelog-convention) (hub); Changelog Curator persona source |
 
@@ -201,13 +201,12 @@ The manifest hub's [navigation guide](docs/agents/project-manifest/README.md#nav
 | Review past discussions | [discussions/](docs/discussions/) |
 | Review error history | [history/error-ledger.md](docs/history/error-ledger.md) |
 | Review key learnings | [history/key-learnings.md](docs/history/key-learnings.md) |
-| Get a full codebase snapshot for LLMs | The *Generated Context* section of the [manifest hub](docs/agents/project-manifest/README.md) |
 
 ---
 
 ## Generated Artefacts
 
-Some tracked files are written by build commands, not by hand: persona build output, version fields synchronised from changelogs, the CTX context docs, and generated reference documents. [`generated-artefacts.md`](docs/agents/project-manifest/generated-artefacts.md) is the single document for the whole workspace, covering the personas, the MCP server and the orchestrator alike. How these files are handled on a branch is set by the [Standing Decision](personas/docs/agents/project-manifest/curation-log.md#standing-decisions) of 2026-10-16, which the [Git Committer](personas/standalone/src/content/git-committer.md) persona enforces; [Purpose and Branch Policy](docs/agents/project-manifest/generated-artefacts.md#purpose-and-branch-policy) summarises it, including the cases of CTX output and date-only diffs. The build-first row below is the one project-level rule the Git Committer does not enforce. The rules below apply workspace-wide.
+Some tracked files are written by build commands, not by hand: persona build output, version fields synchronised from changelogs, and generated reference documents. [`generated-artefacts.md`](docs/agents/project-manifest/generated-artefacts.md) is the single document for the whole workspace, covering the personas, the MCP server and the orchestrator alike. How these files are handled on a branch is set by the [Standing Decision](personas/docs/agents/project-manifest/curation-log.md#standing-decisions) of 2026-10-16, which the [Git Committer](personas/standalone/src/content/git-committer.md) persona enforces; [Purpose and Branch Policy](docs/agents/project-manifest/generated-artefacts.md#purpose-and-branch-policy) summarises it, including the case of date-only diffs. The build-first row below is the one project-level rule the Git Committer does not enforce. The rules below apply workspace-wide.
 
 | Scenario | Action | Priority |
 |----------|--------|----------|

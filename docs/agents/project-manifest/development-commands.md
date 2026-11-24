@@ -34,7 +34,7 @@ Run from the workspace root.
 | Build & Maintain | `node scripts/cli.js build-maintain` |
 | Fetch PR review comments | `node scripts/fetch-pr-review-comments.js [--pr <n>]` from inside the repository under review (needs an authenticated `gh`; `--help` lists the options) |
 
-Build & Maintain syncs the module versions from their changelogs, builds every persona suite, regenerates the agents overview and runs CTX generation. The full list of files it writes, and the side effects of the other build commands, is in [Commands That Touch More Than They Generate](generated-artefacts.md#commands-that-touch-more-than-they-generate). The rule for when to run it before a commit is in [Purpose and Branch Policy](generated-artefacts.md#purpose-and-branch-policy).
+Build & Maintain syncs the module versions from their changelogs, builds every persona suite, and regenerates the agents overview. The full list of files it writes, and the side effects of the other build commands, is in [Commands That Touch More Than They Generate](generated-artefacts.md#commands-that-touch-more-than-they-generate). The rule for when to run it before a commit is in [Purpose and Branch Policy](generated-artefacts.md#purpose-and-branch-policy).
 
 ### MCP Server (`mcp-server/`)
 
@@ -118,6 +118,6 @@ Which checks to run after which kind of change. This section builds on the [Vali
 | **Root script or shared library** (`scripts/`, `scripts/lib/`) | The workspace-root `npm test`, plus a run of the changed script with `--dry-run` or `--check` where it offers one. Update [root-tooling.md](root-tooling.md) and the root `README.md`. |
 | **Orchestrator** (`orchestrator/src/`) | `ruff check src/` and `pytest` in `orchestrator/`. A change to its prompts, persona-file lookups or model slugs also calls for the matching rows of the Dependency Table. |
 | **Changelog entry or archive** | `node scripts/check-version-sync.js` (module changelog versus package manifest); the personas build warns when the newest `personas/changelog.md` entry is oversized. The rules are in [Changelog Convention](constraints.md#changelog-convention). |
-| **Manifest or documentation only** | No build. Where the change edited a document that CTX imports, the generated `.context/` output is stale until the owner regenerates it. |
+| **Manifest or documentation only** | No build. |
 
 The pre-commit hook runs the persona `--check`, the version sync check and `ruff check orchestrator/src/` on staged orchestrator Python, as described in [Purpose and Branch Policy](generated-artefacts.md#purpose-and-branch-policy). Passing the hook does not substitute for the test suites above.

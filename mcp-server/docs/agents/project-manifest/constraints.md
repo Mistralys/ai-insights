@@ -666,7 +666,7 @@ Some files under `mcp-server/` are written by build and test commands rather tha
 - Classify a modified tracked file against the hub's `generated-artefacts.md` before discarding it.
 - On a feature branch, revert generator drift by path (a `package.json` diff limited to `version`) before integrating upstream.
 - Keep a `package.json` `version` change when the branch edited `changelog.md`; run `npm run sync-version` and commit it with that change.
-- Never revert a hand-maintained neighbour such as `module-context.yaml` or `package-lock.json` as build noise.
+- Never revert a hand-maintained neighbour such as `package-lock.json` as build noise.
 - Never discard by whole-tree restore. Revert by path only, since a whole-tree restore also discards uncommitted source work.
 - Expect `npm test` to rebuild persona output through its `pretest` hook and possibly rewrite `personas/name-mapping.json`; classify that file against the hub document.
 - When unsure whether a file is generated, leave it and ask the user.

@@ -516,7 +516,6 @@ function cmdBuildMaintain(args) {
   if (buildCode !== 0) process.exit(buildCode);
   const rolesCode = runScript('node', [path.join(SCRIPTS_DIR, 'check-known-roles.js')], { cwd: WORKSPACE_ROOT });
   if (rolesCode !== 0) process.exit(rolesCode);
-  cmdCtxGenerate(args);
 }
 
 function cmdOrchestrator(args) {
@@ -559,25 +558,6 @@ function cmdGenerateOverview(args) {
 function cmdGeneratePersonaAudit(args) {
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'generate-persona-audit.js'), ...args], { cwd: WORKSPACE_ROOT });
   if (code !== 0) process.exit(code);
-}
-
-function cmdCtxGenerate(args) {
-  const ctxDir = path.join(WORKSPACE_ROOT, '.context');
-  if (fs.existsSync(ctxDir)) {
-    fs.rmSync(ctxDir, { recursive: true, force: true });
-    log('Cleaned .context/', 'dim');
-  }
-  const result = spawnSync('ctx', ['generate', ...args], {
-    cwd: WORKSPACE_ROOT,
-    stdio: 'inherit',
-    shell: IS_WIN,
-  });
-  if (result.status !== 0) {
-    log('\n\u2717 ctx generate exited with code ' + (result.status ?? 1), 'red');
-    process.exit(result.status ?? 1);
-  }
-  sh('node', [path.join(SCRIPTS_DIR, 'normalize-ctx-paths.js'), ctxDir], { cwd: WORKSPACE_ROOT });
-  fs.writeFileSync(path.join(ctxDir, 'generated-at.txt'), new Date().toISOString() + '\n');
 }
 
 function cmdGitHooks() {
@@ -924,7 +904,7 @@ const COMMANDS = [
     key:         'b',
     label:       'Build & Maintain',
     category:    'Validation & Utilities',
-    description: 'Sync versions, build personas & CTX generate',
+    description: 'Sync versions & build personas',
     run:         cmdBuildMaintain,
   },
   {
@@ -1145,14 +1125,6 @@ const COMMANDS = [
     category:    'Validation & Utilities',
     description: 'Compile doc bundles',
     run:         cmdBundleDocs,
-  },
-  {
-    id:          'ctx-generate',
-    key:         null,
-    label:       'CTX generate',
-    category:    'Validation & Utilities',
-    description: 'Generate context documentation (ctx generate)',
-    run:         cmdCtxGenerate,
   },
   {
     id:          'generate-overview',

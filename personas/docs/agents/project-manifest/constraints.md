@@ -21,7 +21,7 @@
 2. **`README.md` is not generated.** The `personas/ledger/README.md` is hand-authored and serves as the user-facing workflow guide. It is excluded from the build process.
 
 <a name="c2a"></a>
-3. **Directory layout — generated vs. source.** Use the auto-generated tree in `.context/personas/file-structure.md` for structural navigation. The table below clarifies which directories are generated output vs. hand-authored source:
+3. **Directory layout — generated vs. source.** Use the curated [`file-tree.md`](file-tree.md) for structural navigation. The table below clarifies which directories are generated output vs. hand-authored source:
 
    | Directory | Generated? | Purpose |
    |-----------|-----------|----------|
@@ -344,16 +344,14 @@
 <a name="generated-artefacts"></a>
 ## Generated Artefacts
 
-Several tracked files are written by build commands rather than by hand: `.context/**`, `docs/references/agents-overview.md` and `personas/docs/audits/status.md`. `personas/name-mapping.json` is also written by a build command, but it is not tracked — it is listed in `.gitignore` and regenerated per clone, since its `model`, `model_slug` and `cc_model` fields come from each user's gitignored model registry files. The hub's [Generated Artefacts](../../../../docs/agents/project-manifest/generated-artefacts.md) document records, per file, which command writes it, what it is derived from, and when discarding a modified copy is safe or unsafe. The rules below are what follows from that table.
+Several tracked files are written by build commands rather than by hand: `docs/references/agents-overview.md` and `personas/docs/audits/status.md`. `personas/name-mapping.json` is also written by a build command, but it is not tracked — it is listed in `.gitignore` and regenerated per clone, since its `model`, `model_slug` and `cc_model` fields come from each user's gitignored model registry files. The hub's [Generated Artefacts](../../../../docs/agents/project-manifest/generated-artefacts.md) document records, per file, which command writes it, what it is derived from, and when discarding a modified copy is safe or unsafe. The rules below are what follows from that table.
 
 - Classify a modified tracked file against the hub's `generated-artefacts.md` before discarding it.
 - Follow the [Git Committer](../../../standalone/src/content/git-committer.md)'s generated-artefact rules; it is the authority for this practice. On a feature branch, leave generator drift out of every commit and revert it by path before integrating upstream. Commit a generated file whose source the branch changed together with that change.
-- Commit `.context/` output only on `main`, as its own `CTX: Updated docs` commit. On a feature branch, treat every `.context/` change as drift.
 - Never commit a generated file whose diff is only a timestamp or date.
 - `personas/name-mapping.json` is ignored, not tracked: never stage or commit it, and a missing copy after a clone or pull is routine, not a regression. Regenerate it with `node scripts/build-personas.js` (or `node scripts/cli.js setup`/`doctor`, which detect and repair the missing file); the MCP server's `getAgentNames()` loader tolerates its absence rather than requiring it at startup.
-- Never revert a hand-maintained neighbour. `personas/package.json`, the output directories' `.gitkeep` files, `context.yaml`, `personas/module-context.yaml` and `personas/docs/audits/notes.md` / `annotations.json` are source.
+- Never revert a hand-maintained neighbour. `personas/package.json`, the output directories' `.gitkeep` files and `personas/docs/audits/notes.md` / `annotations.json` are source.
 - Never discard by whole-tree restore. Revert by path only, since a whole-tree restore also discards uncommitted source work.
-- Run `node scripts/cli.js ctx-generate` only with the manifests, READMEs and source it imports in their intended state: it deletes `.context/` and regenerates it from them. Root `AGENTS.md` is not among its inputs.
 - When unsure whether a file is generated, leave it and ask the user.
 
 ---

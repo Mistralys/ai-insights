@@ -2,7 +2,7 @@
 
 Annotated directory structure for the persona build system. Auto-generated files (output of the build) are marked with `[generated]`.
 
-> For structural navigation, prefer the auto-generated `.context/personas/file-structure.md` (see [constraints.md §C2a](constraints.md#c2a)) — it is regenerated from the live filesystem and cannot drift. This document is a curated, annotated overview: it explains *why* directories exist and marks generated vs. hand-authored content, which the auto-generated tree does not.
+> For structural navigation, use this curated, annotated overview (see [constraints.md §C2a](constraints.md#c2a)): it explains *why* directories exist and marks generated vs. hand-authored content.
 
 ---
 
@@ -14,7 +14,6 @@ personas/
 ├── changelog.md                       # Version history; version synced to package.json by build-personas.js
 ├── package.json                       # Package metadata; version field kept in sync with changelog.md
 ├── package-lock.json
-├── module-context.yaml
 ├── name-mapping.json                  # [generated, gitignored] Per-persona agent-name lookup; regenerated on every real build; read lazily/per-call by the MCP server's getAgentNames() (mcp-server/src/utils/name-mapping.ts), not at server startup
 │
 ├── persona-build.config.js            # ← Build configuration for @mistralys/persona-builder
