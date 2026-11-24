@@ -1,14 +1,39 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtemp, rm, writeFile } from 'fs/promises';
 import { join } from 'path';
 import { tmpdir } from 'os';
 import * as _internal from '../../src/tools/workflow.js';
 import { LedgerStore } from '../../src/storage/ledger-store.js';
 import { discoverAgents, resetRegistry } from '../../src/utils/agent-registry.js';
-import { AGENT_NAMES } from '../../src/utils/constants.js';
+import { getAgentNames, _resetNameMappingCache } from '../../src/utils/name-mapping.js';
 import { now } from '../../src/utils/timestamp.js';
 import type { RootIndex } from '../../src/schema/root-index.js';
 import type { WorkPackageDetail } from '../../src/schema/work-package.js';
+
+// ─── ledger-root.js mock: lets one test redirect WORKSPACE_ROOT so that
+// `getAgentNames()` sees no `personas/name-mapping.json` at all, without
+// disturbing every other test in this file (which rely on the real,
+// pretest-built mapping at the real workspace root). The getter defaults to
+// the real `WORKSPACE_ROOT` captured from the actual module on first import,
+// so only the one test below that calls `setMockWorkspaceRoot(...)` changes it.
+const { getMockWorkspaceRoot, setMockWorkspaceRoot } = vi.hoisted(() => {
+  let root = '';
+  return {
+    getMockWorkspaceRoot: () => root,
+    setMockWorkspaceRoot: (next: string) => { root = next; },
+  };
+});
+
+vi.mock('../../src/utils/ledger-root.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/utils/ledger-root.js')>();
+  setMockWorkspaceRoot(actual.WORKSPACE_ROOT);
+  return {
+    ...actual,
+    get WORKSPACE_ROOT() {
+      return getMockWorkspaceRoot();
+    },
+  };
+});
 
 const {
   getProjectManagerHandoff,
@@ -731,14 +756,14 @@ describe('WP-003: cc_agent_name, vs_agent_name, da_agent_name in auto_handoff', 
   });
 
   it('PM → Developer: auto_handoff includes cc_agent_name, vs_agent_name, da_agent_name (AC #1)', async () => {
-    await writeAgentFile(agentDir, '3-dev.agent.md', AGENT_NAMES['Developer'].vscode.agent_name, 'Developer');
+    await writeAgentFile(agentDir, '3-dev.agent.md', getAgentNames()['Developer'].vscode.agent_name, 'Developer');
     await discoverAgents(agentDir);
 
     const result = await parseResult(
       getProjectManagerHandoff([makeWp('WP-001', [], 'READY')], tempDir, store),
     );
 
-    const names = AGENT_NAMES['Developer'];
+    const names = getAgentNames()['Developer'];
     expect(result.auto_handoff).toBeDefined();
     expect(result.auto_handoff.cc_agent_name).toBe(names.claude_code.agent_name);
     expect(result.auto_handoff.vs_agent_name).toBe(names.vscode.agent_name);
@@ -746,7 +771,7 @@ describe('WP-003: cc_agent_name, vs_agent_name, da_agent_name in auto_handoff', 
   });
 
   it('Developer → QA: auto_handoff includes cc_agent_name, vs_agent_name, da_agent_name (AC #1)', async () => {
-    await writeAgentFile(agentDir, '4-qa.agent.md', AGENT_NAMES['QA'].vscode.agent_name, 'QA');
+    await writeAgentFile(agentDir, '4-qa.agent.md', getAgentNames()['QA'].vscode.agent_name, 'QA');
     await discoverAgents(agentDir);
 
     const result = await parseResult(
@@ -757,7 +782,7 @@ describe('WP-003: cc_agent_name, vs_agent_name, da_agent_name in auto_handoff', 
       ),
     );
 
-    const names = AGENT_NAMES['QA'];
+    const names = getAgentNames()['QA'];
     expect(result.auto_handoff).toBeDefined();
     expect(result.auto_handoff.cc_agent_name).toBe(names.claude_code.agent_name);
     expect(result.auto_handoff.vs_agent_name).toBe(names.vscode.agent_name);
@@ -765,7 +790,7 @@ describe('WP-003: cc_agent_name, vs_agent_name, da_agent_name in auto_handoff', 
   });
 
   it('QA → Reviewer: auto_handoff includes all three target-specific names (AC #1)', async () => {
-    await writeAgentFile(agentDir, '6-reviewer.agent.md', AGENT_NAMES['Reviewer'].vscode.agent_name, 'Reviewer');
+    await writeAgentFile(agentDir, '6-reviewer.agent.md', getAgentNames()['Reviewer'].vscode.agent_name, 'Reviewer');
     await discoverAgents(agentDir);
 
     const result = await parseResult(
@@ -779,7 +804,7 @@ describe('WP-003: cc_agent_name, vs_agent_name, da_agent_name in auto_handoff', 
       ),
     );
 
-    const names = AGENT_NAMES['Reviewer'];
+    const names = getAgentNames()['Reviewer'];
     expect(result.auto_handoff).toBeDefined();
     expect(result.auto_handoff.cc_agent_name).toBe(names.claude_code.agent_name);
     expect(result.auto_handoff.vs_agent_name).toBe(names.vscode.agent_name);
@@ -787,7 +812,7 @@ describe('WP-003: cc_agent_name, vs_agent_name, da_agent_name in auto_handoff', 
   });
 
   it('existing agent_name is still present and equals the VS Code handle (AC #2)', async () => {
-    await writeAgentFile(agentDir, '3-dev.agent.md', AGENT_NAMES['Developer'].vscode.agent_name, 'Developer');
+    await writeAgentFile(agentDir, '3-dev.agent.md', getAgentNames()['Developer'].vscode.agent_name, 'Developer');
     await discoverAgents(agentDir);
 
     const result = await parseResult(
@@ -795,12 +820,12 @@ describe('WP-003: cc_agent_name, vs_agent_name, da_agent_name in auto_handoff', 
     );
 
     expect(result.auto_handoff).toBeDefined();
-    expect(result.auto_handoff.agent_name).toBe(AGENT_NAMES['Developer'].vscode.agent_name);
+    expect(result.auto_handoff.agent_name).toBe(getAgentNames()['Developer'].vscode.agent_name);
   });
 
   it('existing agent_id is still present when agent file has an id field (AC #3)', async () => {
     const agentId = 'ledger-3-dev';
-    const content = `---\nname: ${AGENT_NAMES['Developer'].vscode.agent_name}\nrole: Developer\nid: ${agentId}\n---\n\n# Agent`;
+    const content = `---\nname: ${getAgentNames()['Developer'].vscode.agent_name}\nrole: Developer\nid: ${agentId}\n---\n\n# Agent`;
     await writeFile(join(agentDir, '3-dev.agent.md'), content, 'utf8');
     await discoverAgents(agentDir);
 
@@ -814,7 +839,7 @@ describe('WP-003: cc_agent_name, vs_agent_name, da_agent_name in auto_handoff', 
 
   it('no existing fields removed — agent_name, agent_id, prompt, and three new names coexist (AC #4)', async () => {
     const agentId = 'ledger-3-dev';
-    const content = `---\nname: ${AGENT_NAMES['Developer'].vscode.agent_name}\nrole: Developer\nid: ${agentId}\n---\n\n# Agent`;
+    const content = `---\nname: ${getAgentNames()['Developer'].vscode.agent_name}\nrole: Developer\nid: ${agentId}\n---\n\n# Agent`;
     await writeFile(join(agentDir, '3-dev.agent.md'), content, 'utf8');
     await discoverAgents(agentDir);
 
@@ -834,7 +859,7 @@ describe('WP-003: cc_agent_name, vs_agent_name, da_agent_name in auto_handoff', 
   });
 
   it('vs_agent_name differs from cc_agent_name and da_agent_name (structural sanity)', async () => {
-    await writeAgentFile(agentDir, '3-dev.agent.md', AGENT_NAMES['Developer'].vscode.agent_name, 'Developer');
+    await writeAgentFile(agentDir, '3-dev.agent.md', getAgentNames()['Developer'].vscode.agent_name, 'Developer');
     await discoverAgents(agentDir);
 
     const result = await parseResult(
@@ -859,6 +884,36 @@ describe('WP-003: cc_agent_name, vs_agent_name, da_agent_name in auto_handoff', 
     expect(result.cc_agent_name).toBeUndefined();
     expect(result.vs_agent_name).toBeUndefined();
     expect(result.da_agent_name).toBeUndefined();
+  });
+
+  it('name mapping missing: auto_handoff is still produced and omits cc_agent_name, vs_agent_name, da_agent_name without throwing', async () => {
+    const realWorkspaceRoot = getMockWorkspaceRoot();
+    await writeAgentFile(agentDir, '3-dev.agent.md', getAgentNames()['Developer'].vscode.agent_name, 'Developer');
+    await discoverAgents(agentDir);
+
+    const emptyWorkspaceRoot = await mkdtemp(join(tmpdir(), 'wp003-no-name-mapping-'));
+    setMockWorkspaceRoot(emptyWorkspaceRoot);
+    _resetNameMappingCache();
+    try {
+      const result = await parseResult(
+        getProjectManagerHandoff([makeWp('WP-001', [], 'READY')], tempDir, store),
+      );
+
+      // auto_handoff is still produced — agent_name/agent_id/prompt come from
+      // getAgentHandle()/getAgentId(), which scan the agent registry and do
+      // not depend on the name mapping at all.
+      expect(result.auto_handoff).toBeDefined();
+      expect(result.auto_handoff.agent_name).toBeDefined();
+      // The three target-specific names are omitted, not thrown on or set to undefined/null keys.
+      expect(result.auto_handoff.cc_agent_name).toBeUndefined();
+      expect(result.auto_handoff.vs_agent_name).toBeUndefined();
+      expect(result.auto_handoff.da_agent_name).toBeUndefined();
+      expect('cc_agent_name' in result.auto_handoff).toBe(false);
+    } finally {
+      setMockWorkspaceRoot(realWorkspaceRoot);
+      _resetNameMappingCache();
+      await rm(emptyWorkspaceRoot, { recursive: true, force: true });
+    }
   });
 });
 

@@ -1,5 +1,11 @@
 # Project Ledger MCP Server - Changelog
 
+## v2.13.0 - **WIP; UNRELEASED**
+
+- Config: `personas/name-mapping.json` is no longer tracked in git and reloads live if missing.
+- GUI: A banner now offers a one-click "Build personas" when the persona build output is missing.
+- CLI: `setup` now detects and repairs missing persona build output.
+
 ## v2.12.0 - Pluggable Error-Code Allocation
 
 **Agents can now request a real error-code base number instead of guessing one.**

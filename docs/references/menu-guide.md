@@ -75,9 +75,8 @@ The **Doctor** command runs a fuller set of checks including dependency freshnes
 | Item | Command | Description |
 |------|---------|-------------|
 | **Doctor** | `doctor` | Full environment health check across all tiers (instant + fast + slow) |
-| **Build & Maintain** | `build-maintain` | Sync module versions, build personas, and regenerate context docs |
+| **Build & Maintain** | `build-maintain` | Sync module versions and build personas |
 | **Bundle docs** | `bundle-docs` | Compile NotebookLM and workflow specification doc bundles |
-| **CTX generate** | `ctx-generate` | Regenerate `.context/` snapshots via the CTX Generator |
 | **Check version sync** | `check-versions` | Verify that changelog versions match `package.json` / `pyproject.toml` |
 
 ## Direct Commands
@@ -116,7 +115,7 @@ Every menu item can be invoked directly without entering the interactive menu:
 ./menu.sh clean-agents --force            # remove persona files without confirmation
 ./menu.sh preview-prompts --list          # list available stage names
 ./menu.sh doctor                          # full health check
-./menu.sh build-maintain                  # sync versions + build + ctx-generate
+./menu.sh build-maintain                  # sync versions + build personas
 ./menu.sh help                            # list all available commands
 ```
 

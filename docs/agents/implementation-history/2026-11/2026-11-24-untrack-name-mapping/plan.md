@@ -16,17 +16,17 @@ The repository's short-term vision is the lowest possible friction for setup and
 
 - **Generator:** `scripts/build-personas.js` (L103–111) writes `personas/name-mapping.json` on every real build via `scripts/lib/name-mapping.js` (`generateNameMapping()`, `writeNameMapping()`). The generator only needs `fs`, `path`, `scripts/lib/persona-model-resolution.js` and `scripts/lib/yaml-utils.js`. Model fields are resolved from `personas/model-registry/default.json`, plus the gitignored `local.json` and `assignments.json`.
 - **MCP server consumer:** `mcp-server/src/utils/constants.ts` L204–208 builds `AGENT_NAMES` with `createRequire(...)('../../../personas/name-mapping.json')` at module load. `mcp-server/src/tools/workflow-handoff.ts` L227 reads `AGENT_NAMES[nextAgent]` to add `cc_agent_name`, `vs_agent_name` and `da_agent_name` to the auto-handoff payload, and already skips them when the lookup is falsy.
-- **GUI server:** `mcp-server/gui/server.ts` (L24) and `mcp-server/gui/api.ts` (L27) import `constants.ts`, so the GUI server inherits the start-up crash. `mcp-server/gui/api-models.ts` already handles a missing file:
+- **GUI server:** `mcp-server/gui/server.ts` (L25) and `mcp-server/gui/api.ts` (L28) import `constants.ts`, so the GUI server inherits the start-up crash. `buildConfigRoutes()` is at L506 and `buildModelRoutes()` (with `POST /api/personas/rebuild`) at L700. `mcp-server/gui/api-models.ts` already handles a missing file:
   - `handleGetPersonas()` returns `[]`;
   - `handleUpdateAssignments()` returns a 400;
   - `computeStale()` returns `false`;
   - `POST /api/personas/rebuild` (`handleRebuildPersonas`) spawns the full build behind a 409 concurrency guard.
 - **GUI frontend:**
-  - `mcp-server/gui/public/views/config-persona-models.js` (L134–145) already shows a pre-build state with a "Rebuild Personas" button.
+  - `mcp-server/gui/public/views/config-persona-models.js` (L186–192) already shows a pre-build state with a "Rebuild Personas" button. Its `pmDoRebuild()` (L643) follows the Config tab visit-token contract (`mcp-server/gui/docs/agents/project-manifest/constraints.md`, integration point 5): `pmIsBuilding` is cleared before the `visit !== pmVisit` stale check, and every other callback effect returns early when the visit is stale.
   - `mcp-server/gui/public/stale-check.js` is the only global banner; it covers version mismatch only and stops polling once shown.
   - Scripts are loaded from `mcp-server/gui/public/index.html` with manual `?v=N` cache-busting.
 - **CLI:**
-  - `scripts/cli.js` `SETUP_COMPONENTS` (L182–231): `personas.detect()` checks only `node_modules` freshness.
+  - `scripts/cli.js` `SETUP_COMPONENTS` (L183–240): `personas.detect()` checks only `node_modules` freshness.
   - `scripts/lib/health-checks.js` `HEALTH_CHECKS` is a data-driven registry of instant, fast and slow checks.
 - **Tests:**
   - `mcp-server` `pretest` always runs a persona build, so tests can rely on a fresh mapping.
@@ -50,7 +50,7 @@ The repository's short-term vision is the lowest possible friction for setup and
 4. **CLI repair paths.**
    - Add an instant-tier `name-mapping-present` health check.
    - `SETUP_COMPONENTS.personas.detect()` also requires the mapping, so `node scripts/cli.js setup` repairs a missing file.
-5. **Docs and changelogs** stop describing the file as Git-tracked, and they describe the new loader, endpoint, notice and recovery paths.
+5. **Docs and changelogs** stop describing the file as Git-tracked, and they describe the new loader, endpoint, notice and recovery paths. The workspace-wide facts now live in the hub documents under `docs/agents/project-manifest/`. In `generated-artefacts.md`, the file moves from *Tracked Generated Artefacts → Runtime-coupled* to *Ignored Generated Artefacts*, and the *Known Contradictions* entry that names this plan as pending is removed.
 
 ## Rationale
 
@@ -164,21 +164,21 @@ The repository's short-term vision is the lowest possible friction for setup and
    - `mcp-server/gui/public/index.html`: add `<script src="/setup-notices.js?v=1"></script>` after `stale-check.js`, and bump `api-client.js`, `app.js`, `views/config-persona-models.js` and `styles.css` `?v=N`.
    - `mcp-server/gui/public/app.js`: call `SetupNotices.init()` after `StaleCheck.init()`.
    - `mcp-server/gui/public/views/config-persona-models.js`:
-     - after a successful rebuild in `pmDoRebuild()` (L585–626), call `SetupNotices.refresh()` when `window.SetupNotices` is defined. This is the only cross-module call; add no event listener and no shared building flag;
-     - rename the pre-build button label (`#pm-prebuild-rebuild-btn`, L140) from "Rebuild Personas" to "Build personas" to match the banner. Only L140 changes: the stale-banner button (L154) and the action-bar button (L325) keep "Rebuild Personas", since they rebuild an existing output;
-     - extend the pre-build message (L137) with a second sentence: "This file is generated locally and is not stored in Git."
+     - after a successful rebuild in `pmDoRebuild()` (L643), call `SetupNotices.refresh()` when `window.SetupNotices` is defined. Place the call next to `pmIsBuilding = false`, **before** the `visit !== pmVisit` early return. The build result is global, so the banner must update even when the user has left the tab, and the call writes nothing into `#config-tab-content`, so the visit-token rule (`mcp-server/gui/docs/agents/project-manifest/constraints.md`, integration point 5) still holds. This is the only cross-module call; add no event listener and no shared building flag;
+     - rename the pre-build button label (`#pm-prebuild-rebuild-btn`, L190) from "Rebuild Personas" to "Build personas" to match the banner. Only L190 changes: the stale-banner button (L204) and the action-bar button (L375) keep "Rebuild Personas", since they rebuild an existing output. Keep the "Rebuilding…" building text, or align it to "Building…" in the pre-build state only;
+     - extend the pre-build message (L188) with a second sentence: "This file is generated locally and is not stored in Git."
 8. **Add the CLI repair paths.**
    - In `scripts/lib/name-mapping.js`, add and export `nameMappingPath(personasDir)` → `path.join(personasDir, 'name-mapping.json')` and `isNameMappingPresent(personasDir)` → `fs.existsSync(nameMappingPath(personasDir))`. Use `nameMappingPath()` in `scripts/build-personas.js` L105 instead of its inline `path.join`.
    - In `scripts/cli.js`, make `SETUP_COMPONENTS` `personas.detect()` also return `false` when `!isNameMappingPresent(PERSONAS_DIR)`. Extend `validate()` the same way (vs-code output present **and** mapping present). `cli.js` exports nothing and runs a menu on import, so the predicate is tested through the helper, not through `SETUP_COMPONENTS`.
    - In `scripts/lib/health-checks.js`, add an instant-tier check after `mcp-dist`: `{ id: 'name-mapping-present', label: 'Persona name mapping built', cost: 'instant', detect: () => isNameMappingPresent(path.join(WORKSPACE_ROOT, 'personas')), fix: 'node scripts/build-personas.js' }`. `WORKSPACE_ROOT` already exists at L30.
 9. **Ignore the file.** Add `/personas/name-mapping.json` to `.gitignore`, grouped with the `/personas/model-registry/…` entries, with a comment: `# Generated per user by scripts/build-personas.js (contains model assignments)`.
 10. **Update the documentation** listed in Documentation Updates, including regenerating `.context/` with `node scripts/cli.js ctx-generate`. If `ctx` is not on PATH, record that in the pipeline summary; it does not block the run.
-11. **Add the changelog entries** (house style, ≤ 100-char lines, version numbers taken as the next minor of each file's current top entry at execution time):
-    - `mcp-server/changelog.md`: tolerant mapping loader with live reload; GUI setup notices with a one-click persona build.
-    - Root `changelog.md`: the mapping is no longer tracked, plus an upgrade note: "after pulling, run `node scripts/cli.js setup` or a persona build to regenerate `personas/name-mapping.json`".
-    - Run `npm run sync-version` in `mcp-server/`.
+11. **Add the changelog entries**, following the house style (≤ 100-character lines) and rule 9 of the Changelog Convention (`docs/agents/project-manifest/constraints.md`: one WIP entry per changelog, never a second one):
+    - `mcp-server/changelog.md`: add the entry to the existing `## v… - **WIP; UNRELEASED**` entry (v2.12.0 when this plan was refreshed) rather than opening a new version. Content: tolerant mapping loader with live reload; GUI setup notices with a one-click persona build.
+    - Root `changelog.md`: add to the topmost WIP entry if there is one. Otherwise, open one with the version rule 9 derives from the last release tag. Content: the mapping is no longer tracked, plus an upgrade note: "after pulling, run `node scripts/cli.js setup` or a persona build to regenerate `personas/name-mapping.json`". Add or extend the module-version blockquote line (rule 3).
+    - Run `npm run sync-version` in `mcp-server/` (a no-op when the WIP version is already synced).
     - No `personas/changelog.md` entry: no persona or persona build-system behaviour changes.
-12. **Verify:** run `cd mcp-server && npm test`, `npm test` at the workspace root, `node scripts/check-version-sync.js`, and `cd mcp-server && npm run build`. Then do a manual degraded-mode smoke test:
+12. **Verify** with the checks that `docs/agents/project-manifest/development-commands.md` → *Verification by Change Type* lists for MCP server code, GUI, root script and changelog changes: `cd mcp-server && npm run build`, `npx tsc --noEmit` and `npm test` in `mcp-server/`, `npm test` at the workspace root, and `node scripts/check-version-sync.js`. Then do a manual degraded-mode smoke test:
     - temporarily rename `personas/name-mapping.json`;
    - confirm `node scripts/cli.js setup` reports Personas as needing setup;
     - start `node mcp-server/dist/index.js` and confirm it starts and logs the stderr warning;
@@ -227,6 +227,7 @@ The repository's short-term vision is the lowest possible friction for setup and
   - `mcp-server/tests/integration/auto-handoff.test.ts`
   - `mcp-server/tests/gui/handoff-config-integration.test.ts`
   - `mcp-server/tests/gui/route-table.test.ts`
+  - `mcp-server/tests/gui/config-tabs.test.ts`
   - `scripts/tests/health-checks.test.js`
   - `scripts/tests/name-mapping.test.js`
 - **Docs and changelogs:** see Documentation Updates.
@@ -257,7 +258,7 @@ The repository's short-term vision is the lowest possible friction for setup and
 
 | # | Action | When | Why an agent cannot do it |
 |---|--------|------|---------------------------|
-| 1 | Run `git rm --cached personas/name-mapping.json` and commit it together with the `.gitignore` change | After the run | Index changes and commits are Git writes, which the user owns. |
+| 1 | Run `git rm --cached personas/name-mapping.json` and commit it together with the `.gitignore` change (yourself or through the Git Committer persona) | After the run | Index changes and commits are Git writes, which only the user or the Git Committer performs (`docs/agents/project-manifest/constraints.md` → Git Operations). |
 | 2 | Tell other users of the repository (release notes or the root changelog upgrade note) that pulling this change deletes their local `personas/name-mapping.json`, which `node scripts/cli.js setup`, a persona build, or the GUI banner regenerates | After the run | Communicating with other users is outside the agent's reach. |
 
 ## Acceptance Criteria
@@ -271,7 +272,7 @@ The repository's short-term vision is the lowest possible friction for setup and
 - AC-07: `GET /api/setup-notices` returns `{ notices: [ { id: 'personas-not-built', … action: { kind: 'rebuild-personas' } } ] }` when the mapping is missing and `{ notices: [] }` when present. Inside `mcp-server`, the name-mapping path is derived only by `resolveNameMappingPath()` (anchored on `WORKSPACE_ROOT`), which `mcp-server/gui/api-models.ts` and `mcp-server/gui/setup-notices.ts` both use.
 - AC-08: The GUI shows a global setup banner with a "Build personas" button when notices exist and shows nothing otherwise. A successful build removes the banner. A failed build shows an inline error with the build output and the `node scripts/cli.js setup` hint. A 409 is shown as "already running".
 - AC-09: The banner polls only while notices are visible, and disappears without a page reload after the file is created externally. Polling restarts when a later `refresh()` finds a notice again, is skipped while the page is hidden, and resumes with an immediate refresh when it becomes visible. A 409 keeps polling until the other build finishes.
-- AC-10: A successful rebuild from the Persona Models tab calls `SetupNotices.refresh()` (guarded by `window.SetupNotices`), so the banner clears without waiting for the next poll. `SetupNotices` exposes only `init()` and `refresh()`, dispatches no window event, and does not touch the Persona Models view.
+- AC-10: A successful rebuild from the Persona Models tab calls `SetupNotices.refresh()` (guarded by `window.SetupNotices`), including when the tab's visit token has gone stale, so the banner clears without waiting for the next poll. `SetupNotices` exposes only `init()` and `refresh()`, dispatches no window event, and does not touch the Persona Models view.
 - AC-14: The setup banner meets the accessibility floor: a `role="status"` / `aria-live="polite"` container, a real `<button>` with a visible `:focus-visible` indicator (at least 3:1 contrast), a text-based building state with an `aria-hidden` spinner, a `<details>` with a visible `<summary>` for build output, and no `innerHTML` for server strings (the setup command is rendered with a `<code>` element). It uses the existing banner colour tokens in both themes, is non-sticky and never overlaps `.stale-banner` or the header, wraps without clipping at narrow widths and 200% zoom, and adds no motion beyond the spinner. The build button label reads "Build personas" on both the banner and the Persona Models pre-build state.
 - AC-11: `scripts/lib/name-mapping.js` exports `nameMappingPath()` and `isNameMappingPresent()`; `scripts/lib/health-checks.js` exposes an instant-tier `name-mapping-present` check built on it, with fix `node scripts/build-personas.js`; `SETUP_COMPONENTS.personas.detect()` and `validate()` return `false` when the mapping is missing.
 - AC-12: All documents listed in Documentation Updates no longer state or imply that `personas/name-mapping.json` is tracked in Git, and describe the loader, the endpoint and the recovery paths.
@@ -308,7 +309,7 @@ The repository's short-term vision is the lowest possible friction for setup and
 - `mcp-server/tests/gui/setup-notices-client.test.ts` — "restarts polling when a later refresh finds a notice", "skips polling while document.hidden and refreshes on visibilitychange", "CONFLICT keeps polling and clears when notices are empty" — AC-09
 - `mcp-server/tests/gui/setup-notices-client.test.ts` — "container has role=status and aria-live=polite", "building state disables the button and shows text with an aria-hidden spinner", "failure renders details with summary and the setup command in a code element" — AC-08, AC-14
 - `mcp-server/tests/gui/setup-notices-client.test.ts` — "exposes only init and refresh" and "a successful build dispatches no window event" (spy on `window.dispatchEvent`) — AC-10
-- `mcp-server/tests/gui/setup-notices-client.test.ts` (or the existing Persona Models view test file, if one exists) — "Persona Models rebuild success calls SetupNotices.refresh" and "Persona Models rebuild does not throw when window.SetupNotices is undefined" — AC-10
+- `mcp-server/tests/gui/config-tabs.test.ts` (the existing suite that exercises the Persona Models rebuild) — "Persona Models rebuild success calls SetupNotices.refresh", "Persona Models rebuild calls SetupNotices.refresh even when the visit is stale (tab left during the build)" and "Persona Models rebuild does not throw when window.SetupNotices is undefined" — AC-10
 - `scripts/tests/health-checks.test.js` — "name-mapping-present is instant tier and detects presence/absence" (temp workspace or `fs.existsSync` spy) — AC-11
 - `scripts/tests/name-mapping.test.js` — "nameMappingPath joins personasDir and name-mapping.json" and "isNameMappingPresent reflects existence in a temp personas dir" — AC-11
 - Step 12 manual check: `node scripts/cli.js setup` with the file removed lists Personas as needing setup and regenerates the file — AC-11
@@ -316,13 +317,23 @@ The repository's short-term vision is the lowest possible friction for setup and
 
 ## Documentation Updates
 
-- Root `AGENTS.md` and root `CLAUDE.md`:
-  - Cross-System Dependencies "Agent name mapping" row: replace "checked into Git — staleness is visible in diffs" with "gitignored, generated per user (contains model assignments)", and replace the `constants.ts → AGENT_NAMES` consumer with `mcp-server/src/utils/name-mapping.ts → getAgentNames()` (lazy, mtime-reloaded, tolerant of absence).
-  - Model Registry row: note that `name-mapping.json` carries the resolved models and is gitignored.
-  - Root-Level Tooling `scripts/lib/health-checks.js` row: mention `name-mapping-present`; `scripts/build-personas.js` row: note the `nameMappingPath()` / `isNameMappingPresent()` helpers in `scripts/lib/name-mapping.js`.
-- `docs/agents/project-manifest/README.md` (L103): same correction as the AGENTS.md row.
-- `personas/docs/persona-build-system.md` (L65, L104): mark the file as generated and gitignored.
-- `personas/docs/agents/project-manifest/constraints-cross-system.md` (L18), `data-flows.md`, `api-surface.md`, `file-tree.md`: gitignored status; MCP consumer is now `getAgentNames()`.
+Root `AGENTS.md` no longer carries the cross-system or tooling inventories, and root `CLAUDE.md` is now only `@AGENTS.md`, so neither file changes. The workspace-wide facts live in the hub documents under `docs/agents/project-manifest/`. The root `AGENTS.md` Manifest Maintenance Rules require each of the hub updates below.
+
+- `docs/agents/project-manifest/generated-artefacts.md` (the single generated-artefacts document for the workspace):
+  - Remove the `personas/name-mapping.json` row from *Tracked Generated Artefacts → Runtime-coupled* (L27). Add a row to *Ignored Generated Artefacts* (Source: Personas; regenerate with `node scripts/build-personas.js`, `node scripts/cli.js setup` or the GUI's "Build personas" banner).
+  - Remove the *Known Contradictions* entry (L108) that names this plan as pending.
+  - Reword the `npm test` in `mcp-server/` command row (L98) and the `build-maintain` row (L97), which call the file "tracked".
+- `docs/agents/project-manifest/cross-system-dependencies.md`:
+  - "Agent name mapping" row (L14): gitignored, generated per user (contains model assignments). The MCP consumer is now `mcp-server/src/utils/name-mapping.ts` → `getAgentNames()` (lazy, mtime-reloaded, tolerant of absence) instead of `constants.ts` → `AGENT_NAMES`.
+  - Model Registry row (L31): `name-mapping.json` carries the resolved models and is gitignored.
+- `docs/agents/project-manifest/live-workspace.md` (L14 *Startup reads*, L25): the server no longer loads the file at start-up. It reads it lazily on the first auto-handoff, reloads it when its mtime changes (no restart needed after a rebuild) and degrades when it is absent. Remove the link to the Known Contradictions entry. This update is required because the change alters what the running Ledger server reads (root `AGENTS.md` Failure Protocol).
+- `docs/agents/project-manifest/root-tooling.md`: the `scripts/lib/name-mapping.js` row (L53) gains the `nameMappingPath()` / `isNameMappingPresent()` exports. The `scripts/lib/health-checks.js` row mentions `name-mapping-present`, and the `scripts/cli.js` `setup` description notes that Personas setup now also requires the mapping.
+- `docs/agents/project-manifest/development-commands.md` (L47, L112): stop calling `personas/name-mapping.json` a tracked file the build rewrites.
+- `docs/agents/project-manifest/constraints.md` (L16, Critical Rules): keep the sync-point rule, but drop any implication that the mapping is versioned.
+- `personas/docs/agents/project-manifest/constraints.md` → *Generated Artefacts* (L347–354): remove `personas/name-mapping.json` from the tracked list and from the "keep a runtime-coupled artefact" and "machine-local drift" bullets.
+- `personas/docs/persona-build-system.md` (L65, L104, L837, L958): mark the file as generated and gitignored, and replace "consumed by the MCP server at startup" with the lazy, tolerant loader.
+- `personas/docs/agents/project-manifest/constraints-cross-system.md` (L18), `data-flows.md`, `api-surface.md`, `file-tree.md`: gitignored status; the MCP consumer is now `getAgentNames()`.
+- `mcp-server/docs/agents/project-manifest/tech-stack.md` (L250, `pretest` row) and `constraints.md` → *Generated Artefacts* (L671): the `pretest` build regenerates the ignored mapping and no longer rewrites a tracked file.
 - `mcp-server/docs/agents/project-manifest/api-surface.md`: new `name-mapping.ts` exports; remove `AGENT_NAMES`; move the `NameMappingEntry`/`TargetNames` location.
 - `mcp-server/docs/agents/project-manifest/file-tree.md`: add `src/utils/name-mapping.ts`.
 - `mcp-server/docs/agents/project-manifest/data-flows.md`: name-mapping load flow (lazy, mtime cache, degraded mode).
@@ -330,7 +341,8 @@ The repository's short-term vision is the lowest possible friction for setup and
 - `mcp-server/docs/agents/workflow-specification/auxiliary-systems.md`: the auto-handoff target-specific names are omitted when the mapping is unavailable. This is a documentation-only clarification of existing payload optionality, not a workflow-logic change.
 - `mcp-server/gui/docs/agents/project-manifest/api-surface.md`: add `GET /api/setup-notices`, the `SetupNotice` shape and `detectSetupNotices()` (with the note that a provider registry is the intended refactor at the second notice), the `setup-notices.js` client module (`init()`, `refresh()`) and the one-way Persona Models → `SetupNotices.refresh()` call; note that `api-models.ts` resolves the mapping path through `resolveNameMappingPath()`.
 - `mcp-server/gui/docs/agents/project-manifest/constraints.md`: record the setup-banner conventions — non-sticky container, live region, reuse of the `--color-banner-stale-*` tokens — so later notices follow them.
-- `mcp-server/gui/docs/agents/project-manifest/` file-tree / data-flows documents (whichever exist): add `gui/setup-notices.ts` and `gui/public/setup-notices.js`.
+- `mcp-server/gui/docs/agents/project-manifest/file-tree.md`, `data-flows.md` and `ui-components.md`: add `gui/setup-notices.ts` and `gui/public/setup-notices.js`. Describe the setup banner as a global UI component, and the Persona Models → `SetupNotices.refresh()` call that runs before the visit-token check.
+- Curation logs (`docs/agents/project-manifest/curation-log.md` L119, the personas `curation-log.md`): not edited by this plan. They belong to the Manifest Curator, whose open item on the name-mapping row is resolved by the `generated-artefacts.md` update above.
 - `mcp-server/changelog.md`, root `changelog.md`: entries per step 11.
 - `.context/`: regenerate with `node scripts/cli.js ctx-generate`.
 

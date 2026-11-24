@@ -76,7 +76,6 @@ Each job fails independently. npm and pip dependencies are cached to reduce cold
 | `node scripts/check-known-roles.js` | — | Verify role parity between personas and MCP server |
 | `node scripts/package-personas.js` | `./menu.sh package-personas` | Package standalone personas into distributable ZIPs |
 | `node scripts/bundle-docs.js` | `./menu.sh bundle-docs` | Compile project docs into bundles (e.g. for NotebookLM) |
-| `node scripts/cli.js ctx-generate` | `./menu.sh ctx-generate` | Generate context documentation via [CTX Generator](https://github.com/context-hub/generator) |
 | `node scripts/cli.js doctor` | `./menu.sh doctor` | Run all health checks; exits 1 on any failure |
 | `node scripts/cli.js install-mcp` | `./menu.sh install-mcp` | Register `central_pm` in `~/.copilot/mcp-config.json` (Copilot CLI + VS Code) via stable shim |
 | `node scripts/run-gui.js` | `./menu.sh gui` | Launch the MCP server GUI dashboard |

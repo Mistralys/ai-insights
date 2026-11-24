@@ -451,6 +451,8 @@ All classes are prefixed `ec-` to avoid collision with shared component classes.
 | `.success-banner` | Green success message box. |
 | `.info-banner` | Blue informational banner. |
 | `.stale-banner` | Yellow sticky warning (version mismatch). |
+| `.setup-banner` | Yellow non-sticky setup-gap notice (e.g. personas not built yet), rendered by `setup-notices.js` inside `#setup-notices`; reuses the `--color-banner-stale-*` tokens. |
+| `.setup-banner-error` | `<details>` failure block inside `.setup-banner`, holding a `<pre class="pm-build-error-pre">` and a `<code>` CLI hint. |
 
 ---
 

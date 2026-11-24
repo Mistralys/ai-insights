@@ -43,6 +43,7 @@ import { getPublishLocations } from './publish-locations.js';
 import { install as mcpGlobalInstall, dryRun as mcpGlobalDryRun, shimConfigExists } from './install-mcp-global.js';
 import { isCliLinked, linkCli } from './lib/npm-link.js';
 import { HEALTH_CHECKS, runChecks } from './lib/health-checks.js';
+import { isNameMappingPresent } from './lib/name-mapping.js';
 import { isMcpDistStale } from './lib/mcp-dist-freshness.js';
 import { getOriginalCwd } from './lib/original-cwd.js';
 import { releaseStdinForChild } from './lib/stdin-handoff.js';
@@ -211,7 +212,11 @@ const SETUP_COMPONENTS = [
       const outerLock = path.join(PERSONAS_DIR, 'package-lock.json');
       const innerLock = path.join(PERSONAS_DIR, 'node_modules', '.package-lock.json');
       if (!fs.existsSync(innerLock)) return false;
-      return fs.statSync(outerLock).mtimeMs <= fs.statSync(innerLock).mtimeMs;
+      if (fs.statSync(outerLock).mtimeMs > fs.statSync(innerLock).mtimeMs) return false;
+      // personas/name-mapping.json is a generated, untracked build artefact
+      // (see .gitignore) — a fresh clone or pull never carries it, so this
+      // component must be re-run until the build has produced it.
+      return isNameMappingPresent(PERSONAS_DIR);
     },
     run() {
       log('  Installing personas dependencies…', 'dim');
@@ -224,6 +229,7 @@ const SETUP_COMPONENTS = [
       return (r.status ?? 1) === 0;
     },
     validate() {
+      if (!isNameMappingPresent(PERSONAS_DIR)) return false;
       try {
         const dir = path.join(PERSONAS_DIR, 'ledger', 'vs-code');
         return fs.readdirSync(dir).some((f) => f.endsWith('.md'));
@@ -510,7 +516,6 @@ function cmdBuildMaintain(args) {
   if (buildCode !== 0) process.exit(buildCode);
   const rolesCode = runScript('node', [path.join(SCRIPTS_DIR, 'check-known-roles.js')], { cwd: WORKSPACE_ROOT });
   if (rolesCode !== 0) process.exit(rolesCode);
-  cmdCtxGenerate(args);
 }
 
 function cmdOrchestrator(args) {
@@ -553,25 +558,6 @@ function cmdGenerateOverview(args) {
 function cmdGeneratePersonaAudit(args) {
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'generate-persona-audit.js'), ...args], { cwd: WORKSPACE_ROOT });
   if (code !== 0) process.exit(code);
-}
-
-function cmdCtxGenerate(args) {
-  const ctxDir = path.join(WORKSPACE_ROOT, '.context');
-  if (fs.existsSync(ctxDir)) {
-    fs.rmSync(ctxDir, { recursive: true, force: true });
-    log('Cleaned .context/', 'dim');
-  }
-  const result = spawnSync('ctx', ['generate', ...args], {
-    cwd: WORKSPACE_ROOT,
-    stdio: 'inherit',
-    shell: IS_WIN,
-  });
-  if (result.status !== 0) {
-    log('\n\u2717 ctx generate exited with code ' + (result.status ?? 1), 'red');
-    process.exit(result.status ?? 1);
-  }
-  sh('node', [path.join(SCRIPTS_DIR, 'normalize-ctx-paths.js'), ctxDir], { cwd: WORKSPACE_ROOT });
-  fs.writeFileSync(path.join(ctxDir, 'generated-at.txt'), new Date().toISOString() + '\n');
 }
 
 function cmdGitHooks() {
@@ -918,7 +904,7 @@ const COMMANDS = [
     key:         'b',
     label:       'Build & Maintain',
     category:    'Validation & Utilities',
-    description: 'Sync versions, build personas & CTX generate',
+    description: 'Sync versions & build personas',
     run:         cmdBuildMaintain,
   },
   {
@@ -1139,14 +1125,6 @@ const COMMANDS = [
     category:    'Validation & Utilities',
     description: 'Compile doc bundles',
     run:         cmdBundleDocs,
-  },
-  {
-    id:          'ctx-generate',
-    key:         null,
-    label:       'CTX generate',
-    category:    'Validation & Utilities',
-    description: 'Generate context documentation (ctx generate)',
-    run:         cmdCtxGenerate,
   },
   {
     id:          'generate-overview',

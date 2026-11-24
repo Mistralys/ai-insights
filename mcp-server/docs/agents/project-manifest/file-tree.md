@@ -164,9 +164,10 @@ mcp-server/
 │       ├── workflow-helpers.ts  # Shared constants and stateless helpers
 │       ├── agent-registry.ts    # Discovers VS Code agent handles and IDs
 │       ├── client-info.ts       # Module-level MCP server reference for extracting client info
-│       ├── constants.ts         # Shared constants and interfaces; derives role/pipeline constants from shared/workflow-manifest.json; loads AGENT_NAMES (TargetNames, NameMappingEntry) from personas/name-mapping.json
+│       ├── constants.ts         # Shared constants and interfaces; derives role/pipeline constants from shared/workflow-manifest.json; no file I/O — the personas/name-mapping.json loader (TargetNames, NameMappingEntry, getAgentNames()) lives in name-mapping.ts, not here
 │       ├── if-defined.ts        # ifDefined() type guard helper
 │       ├── ledger-root.ts       # resolveLedgerRoot(), projectSlugFromPath(), inferProjectRootFromPlanPath()
+│       ├── name-mapping.ts      # Tolerant, mtime-reloading loader for personas/name-mapping.json (gitignored, generated build artefact); exports resolveNameMappingPath(), getAgentNames(), isNameMappingPresent(), test-only _resetNameMappingCache(); TargetNames/NameMappingEntry interfaces; never throws — returns {} when the file is missing, malformed JSON, or not a JSON array, with deduplicated stderr warnings per failure kind
 │       ├── node-errors.ts       # isNodeError(err): err is NodeJS.ErrnoException — strictest of the five former per-file copies (typeof err.code === 'string'); hasErrorCode(err, code) — single-code narrowing idiom; shared guard consolidated from json-state-file.ts, gui/model-registry.ts, gui/config.ts, gui/log-resolver.ts, gui/api.ts
 │       ├── path-validator.ts    # Pure path-segment validation; assertSafeSegment() slug-segment predicate; no storage deps
 │       ├── project-resolver.ts  # resolveProjectPath() + formatCandidateList(); requires LedgerStore
@@ -229,7 +230,7 @@ mcp-server/
     │   ├── dialogue-qa.test.ts
     │   ├── api-dialogue-parse.test.ts  # Unit and integration tests for updated DIALOGUE_PARSE_RE / CHUNK_PARSE_RE (project- prefix support) and wpId="project" filter acceptance in handleListDialogues / handleListChunks; real temp dirs
     │   ├── project-detail-dialogues.test.ts  # jsdom + vm.runInThisContext tests for renderDialoguesSection(): empty state, project-level Source badge, WP-level source cell, chunk priority over Markdown, expand/collapse interaction, error state, table structure (column headers, grouping)
-    │   ├── handoff-config-integration.test.ts  # Integration: runtime config changes affect buildHandoffResponse
+    │   ├── handoff-config-integration.test.ts  # Integration: runtime config changes affect buildHandoffResponse; migrated to getAgentNames() (src/utils/name-mapping.ts); intentionally does not mock ledger-root.js, so its default path resolves to the real mapping produced by the pretest build
     │   ├── log-resolver.test.ts
     │   ├── api-orchestrator.test.ts  # 23 unit tests for the 4 orchestrator API handlers: planPath validation (missing, number, null, non-object body), dryRun forwarding (true/false/default), queue enrichment shape, kill result { killed: boolean }, dismiss void resolution, assertSafeQueueId guard (empty/slash/double-dot rejection)
     │   ├── api-knowledge.test.ts  # Unit tests for gui/api-knowledge.ts handlers (WP-003); imports from ../../gui/api-knowledge.js; complements knowledge-api-multi-store.test.ts
@@ -261,7 +262,7 @@ mcp-server/
     │   └── security-headers.test.ts
     │
     ├── integration/             # End-to-end workflow tests
-    │   ├── auto-handoff.test.ts
+    │   ├── auto-handoff.test.ts  # Migrated to getAgentNames() (src/utils/name-mapping.ts); includes a test mocking ledger-root.js's WORKSPACE_ROOT via vi.hoisted/vi.mock proving the auto_handoff payload is still produced and omits cc_agent_name/vs_agent_name/da_agent_name as a group, without throwing, when personas/name-mapping.json is absent
     │   └── full-workflow.test.ts
     │
     ├── schema/                  # Schema validation tests
@@ -326,9 +327,11 @@ mcp-server/
     │
     └── utils/                   # Utility function tests
         ├── agent-registry.test.ts
+        ├── constants-no-io.test.ts  # Asserts constants.ts no longer exports AGENT_NAMES and its source no longer references createRequire or personas/name-mapping.json (no file I/O remains in constants.ts)
         ├── derive-repo-name.test.ts
         ├── if-defined.test.ts
         ├── ledger-root.test.ts
+        ├── name-mapping.test.ts  # Full state machine for src/utils/name-mapping.ts: path resolution against a mocked WORKSPACE_ROOT (ledger-root.js getter mock), present/missing/malformed/non-array handling, mtime-based reload vs. cache hit, stderr warning dedup across a missing→malformed→non-array→success→missing sequence, stdout silence
         ├── node-errors.test.ts  # Covers isNodeError (ErrnoException shape, plain Error, non-error value, non-string code) and hasErrorCode (exact match, mismatch, non-Node error, non-string code)
         ├── path-validator.test.ts
         ├── project-resolver.test.ts

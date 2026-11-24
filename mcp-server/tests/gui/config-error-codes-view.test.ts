@@ -586,7 +586,7 @@ describe('ecHandleSave — in-flight guard', () => {
     const indexHtml = readFileSync(join(publicDir, 'index.html'), 'utf-8');
     expect(indexHtml).toContain('/views/config-error-codes.js?v=3');
     expect(indexHtml).toContain('/views/config.js?v=6');
-    expect(indexHtml).toContain('/api-client.js?v=7');
+    expect(indexHtml).toContain('/api-client.js?v=8');
   });
 
   it('config.js references the Error Codes module only through its CONFIG_TABS descriptor (ecResetState), never a direct field', () => {

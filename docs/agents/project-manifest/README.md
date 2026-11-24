@@ -25,7 +25,7 @@ Documents that belong to the workspace hub itself, beside this index.
 | Document | Purpose |
 |----------|---------|
 | [cross-system-dependencies.md](cross-system-dependencies.md) | Synchronisation points between sub-projects, root scripts and shared files, plus the validation commands that check them |
-| [root-tooling.md](root-tooling.md) | Root-level scripts, shared libraries and shared configuration (`scripts/`, `shared/`, `context.yaml`) |
+| [root-tooling.md](root-tooling.md) | Root-level scripts, shared libraries and shared configuration (`scripts/`, `shared/`) |
 | [development-commands.md](development-commands.md) | Install, build, test, single-test, lint, typecheck and run commands for each part of the workspace, the toolchain versions, and the checks to run for each kind of change |
 | [live-workspace.md](live-workspace.md) | What the running Ledger MCP server reads and which changes can break it or the workflow that depends on it |
 | [plan-folders.md](plan-folders.md) | Layout of `docs/agents/plans/` and `implementation-history/`: which files a plan folder holds, who writes each and how the folder is archived |
@@ -113,23 +113,7 @@ The synchronisation points that span sub-projects, and the validation scripts th
 
 ## Shared Infrastructure
 
-The root-level scripts, `shared/workflow-manifest.json` and its schema, and `context.yaml` are inventoried in [root-tooling.md](root-tooling.md).
-
----
-
-## Generated Context (`.context/`)
-
-The `.context/` directory contains auto-generated Markdown snapshots of the entire codebase, produced by the CTX Generator via `node scripts/cli.js ctx-generate`. These files are tracked in VCS and ideal for feeding into LLMs or external tools.
-
-| Path | Contents |
-|------|----------|
-| `.context/README.md` | Workspace overview |
-| `.context/workspace-structure.md` | Top-level directory tree |
-| `.context/scripts.md` | All workspace scripts source |
-| `.context/shared-manifest.md` | `workflow-manifest.json` + schema |
-| `.context/mcp-server/…` | MCP server overview, manifest, source, tests, file tree |
-| `.context/orchestrator/…` | Orchestrator overview, docs, source, tests, file tree |
-| `.context/personas/…` | Personas overview, manifest, metadata, partials, file tree |
+The root-level scripts, `shared/workflow-manifest.json` and its schema are inventoried in [root-tooling.md](root-tooling.md).
 
 ---
 
@@ -158,4 +142,3 @@ The `.context/` directory contains auto-generated Markdown snapshots of the enti
 | Understand the ledger agent workflow | [Ledger Suite Guide](../../../personas/ledger/README.md) |
 | See an end-to-end visual workflow map | [Ledger Workflow Visual Guide](../references/ledger-workflow-visual-guide.md) |
 | Review deferred implementation decisions | [Deferred Topics](../deferred-topics.md) |
-| Get a full codebase snapshot | `.context/` (run `node scripts/cli.js ctx-generate`) |

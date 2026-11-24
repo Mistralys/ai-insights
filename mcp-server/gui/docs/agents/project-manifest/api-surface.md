@@ -245,6 +245,28 @@ The `buildInProgress` module-level flag prevents concurrent builds. It is cleare
 | `GET` | `/api/config` | `handleGetConfig` | Current GUI configuration. |
 | `PUT` | `/api/config` | `handleUpdateConfig` | Update GUI configuration. Body validated by `GuiConfigPartialSchema`. |
 | `GET` | `/api/server-info` | *(inline)* | Boot vs disk versions + stale flag. |
+| `GET` | `/api/setup-notices` | `handleGetSetupNotices` | Active post-clone/post-pull setup gaps (see 1.7a). |
+
+---
+
+### 1.7a Setup Notices
+
+All logic lives in `gui/setup-notices.ts`. Reports setup gaps the GUI should surface as a dismissible banner, instead of letting them show up as confusing downstream errors (an empty persona list, a model-assignment screen the user can't use, etc.).
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `GET` | `/api/setup-notices` | `handleGetSetupNotices` | `{ notices: SetupNotice[] }` — `[]` when nothing is amiss. |
+
+```typescript
+interface SetupNotice {
+  id: string;             // Stable machine-readable id, e.g. "personas-not-built"
+  title: string;           // Short summary shown in the banner
+  message: string;         // Longer explanation
+  action?: { kind: string }; // Optional client-side remediation, e.g. "rebuild-personas"
+}
+```
+
+`detectSetupNotices()` is the pure, synchronous detection function `handleGetSetupNotices()` wraps; today it returns exactly one possible notice — `personas-not-built` with a `rebuild-personas` action — when `isNameMappingPresent()` (from `src/utils/name-mapping.ts`) is `false`. The response is array-shaped so a second notice can be added later with no client-side contract change; a `SetupNoticeProvider` registry is deferred until a second consumer exists.
 
 ---
 
@@ -549,6 +571,7 @@ Client-side REST API wrapper. All methods return Promises. All methods can rejec
 | `rebuildPersonas` | `() → Promise<object>` | `POST /api/personas/rebuild` |
 | `getInsights` | `() → Promise<object[]>` | `GET /api/insights` |
 | `getServerInfo` | `() → Promise<object>` | `GET /api/server-info` |
+| `getSetupNotices` | `() → Promise<{ notices: object[] }>` | `GET /api/setup-notices` |
 | `getErrorCodeProviders` | `() → Promise<{ providers: object[], plugin_dir: string, load_errors: object[] }>` | `GET /api/error-codes/providers` |
 | `getErrorCodeConfig` | `() → Promise<object>` | `GET /api/error-codes/config` |
 | `updateErrorCodeConfig` | `(data: object) → Promise<object>` | `PUT /api/error-codes/config` |
@@ -596,7 +619,16 @@ Client-side REST API wrapper. All methods return Promises. All methods can rejec
 
 ---
 
-### 2.5 `OrchestratorWidgets` (js/orchestrator-widgets.js)
+### 2.5 `SetupNotices` (setup-notices.js)
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `init` | `() → void` | Insert the `#setup-notices` live region before `<header>` (after `.stale-banner` when present) and start polling `GET /api/setup-notices` while notices exist. |
+| `refresh` | `() → void` | Re-fetch `GET /api/setup-notices` immediately and re-render; called by `views/config-persona-models.js`'s `pmDoRebuild()` on a successful rebuild (guarded by `window.SetupNotices`). No other method is exposed — see `data-flows.md` §17 for the full lifecycle (polling pause on `document.hidden`, the 409 "already running" state, and the one-way tab→banner coupling). |
+
+---
+
+### 2.6 `OrchestratorWidgets` (js/orchestrator-widgets.js)
 
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
@@ -610,7 +642,7 @@ Client-side REST API wrapper. All methods return Promises. All methods can rejec
 
 ---
 
-### 2.6 Global Utility Functions (utils.js)
+### 2.7 Global Utility Functions (utils.js)
 
 | Function | Signature | Description |
 |----------|-----------|-------------|

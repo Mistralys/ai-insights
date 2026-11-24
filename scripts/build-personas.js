@@ -19,7 +19,7 @@ import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import { createRequire } from 'module';
-import { generateNameMapping, writeNameMapping } from './lib/name-mapping.js';
+import { generateNameMapping, writeNameMapping, nameMappingPath } from './lib/name-mapping.js';
 import { checkAgentsOverview, writeAgentsOverview } from './lib/agents-overview.js';
 import { validateInsightFieldsInDirs } from './lib/insight-validation.js';
 import { validateSubagentReferences } from './lib/subagent-reference-validation.js';
@@ -103,7 +103,7 @@ if (!CHECK) {
 
 // Post-build: generate personas/name-mapping.json (real builds only)
 if (!CHECK) {
-  const outPath = path.join(ROOT, 'personas', 'name-mapping.json');
+  const outPath = nameMappingPath(path.join(ROOT, 'personas'));
 
   const { entries, ledgerCount, nonLedgerCount } = generateNameMapping({
     personasDir: path.join(ROOT, 'personas'),

@@ -1038,6 +1038,60 @@ input[type="number"].form-control {
 }
 
 /* ----------------------------------------------------------
+   Setup-notices banner (global, GUI shell — see setup-notices.js)
+
+   Reuses the same `--color-banner-stale-*` tokens as .stale-banner, but is
+   intentionally non-sticky (position: static) so it never fights the
+   stale-banner for the sticky top slot; setup-notices.js inserts its
+   container immediately after .stale-banner when one is present.
+   ---------------------------------------------------------- */
+#setup-notices {
+  display: block;
+}
+
+.setup-banner {
+  background: var(--color-banner-stale-bg);
+  color: var(--color-banner-stale-fg);
+  border-bottom: 2px solid var(--color-banner-stale-border);
+  padding: 12px 24px;
+  font-size: 14px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.setup-banner button:focus-visible {
+  /* --color-banner-stale-fg (not -border) carries >=3:1 contrast against the
+     banner's own background in both themes — it is the text colour chosen
+     for exactly that purpose. */
+  outline: 3px solid var(--color-banner-stale-fg);
+  outline-offset: 2px;
+}
+
+.setup-banner-error {
+  flex-basis: 100%;
+  margin-top: 4px;
+}
+
+.setup-banner-error summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.setup-banner-error p {
+  margin: 8px 0;
+}
+
+.setup-banner-error code {
+  background: var(--color-surface);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: monospace;
+}
+
+/* ----------------------------------------------------------
    Pagination controls (WP-008)
    ---------------------------------------------------------- */
 .pagination-row {

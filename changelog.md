@@ -1,5 +1,18 @@
 # AI Insights Changelog
 
+## v2.16.0 - **WIP; UNRELEASED**
+> (Work in progress)
+
+- Build: `personas/name-mapping.json` is no longer tracked in Git; it is a generated artefact.
+- CLI: `doctor` and `setup` detect a missing name-mapping file and offer to regenerate it.
+- CLI: Run `node scripts/cli.js setup` (or any persona build) after pulling to rebuild it.
+- MCP: Server and GUI now start and keep running even when the name-mapping file is missing.
+- Build: CTX Generator is no longer used; `build-maintain` no longer needs the `ctx` binary.
+- CLI: The `ctx-generate` command is removed.
+- Build: The tracked `.context/` output, `context.yaml`, the `module-context.yaml` files and the `.vscode/mcp.json` CTX entry are removed.
+- Git: The pre-commit hook no longer warns about a stale `.context/`.
+- Docs: Manifests and workspace docs no longer mention CTX generation; a new guard test keeps it from returning.
+
 ## v2.15.0 - Outcome Summaries and Safer Chains
 > mcp v2.12.0 · personas v3.39.0
 
