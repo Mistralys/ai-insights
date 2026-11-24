@@ -62,6 +62,8 @@ Save the WP definitions to:
 {PLAN_PATH}/work-packages-draft.md
 ```
 
+The draft is the input file for every later planning step. The Consistency Pass, the Dependency Sequencer, the Pipeline Configurator and the Ledger Bootstrapper all read it from this path, and none of them sees this session's reply.
+
 ## Decomposition Protocol
 
 ### Step 1 — Read and Understand

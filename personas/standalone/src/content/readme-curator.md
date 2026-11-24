@@ -106,6 +106,12 @@ Stripping the README produces content that belongs somewhere else, and a gap rep
 
 Most displaced content is large by the triage above: a paragraph leaving the README has to land under a heading someone else owns. Dispatch is the usual outcome here, a direct edit the exception.
 
+{{> subagent-briefing}}
+
+{{#if target_claude_code}}
+{{> subagent-wait-claude-code}}
+
+{{/if}}
 ## Strict Constraints
 
 - **Source‑Bound Content:** Every statement in the README traces to a file in the repository. Never invent features, commands, or requirements. Where core information — purpose, features, or prerequisites — is missing from the sources, leave a `<!-- TODO: {what is missing} -->` placeholder and report the gap to the user rather than inferring or filling it in.

@@ -9,6 +9,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import {
   checkPhilosophyTone,
   checkPhilosophyToneInDirs,
@@ -332,7 +333,7 @@ describe('checkPhilosophyToneInDirs', () => {
 describe('build-personas.js — philosophy-tone descriptor wiring', () => {
   it('passes { stripComments: stripCommentsFn } to checkPhilosophyToneInDirs', () => {
     const source = fs.readFileSync(
-      path.join(path.dirname(new URL(import.meta.url).pathname), '..', 'build-personas.js'),
+      path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'build-personas.js'),
       'utf8',
     );
     const descriptorMatch = source.match(

@@ -232,6 +232,21 @@ var API = (function () {
     getServerInfo:            function ()             { return request('GET',    '/server-info'); },
 
     /**
+     * Fetch the list of active setup notices (e.g. "personas have not been
+     * built yet").
+     *
+     * Used by the GUI's global setup-notices banner (`setup-notices.js`) to
+     * display a dismissible "Build personas" prompt when a generated build
+     * artefact is missing. Returns an empty `notices` array when nothing is
+     * amiss.
+     *
+     * @returns {Promise<{ notices: Array<{ id: string, title: string, message: string, action?: { kind: string } }> }>}
+     *   Response from `GET /api/setup-notices`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    getSetupNotices:          function ()             { return request('GET',    '/setup-notices'); },
+
+    /**
      * Fetch the plan document (Markdown) for a project.
      *
      * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
@@ -697,6 +712,76 @@ var API = (function () {
      */
     reorderStores: function (order) {
       return request('PUT', '/stores/order', { order: order });
+    },
+
+    // -- Error Codes -----------------------------------------------------
+
+    /**
+     * List every registered error-code provider (built-in and plugin), the
+     * scanned plugin directory, and any plugin load errors.
+     *
+     * @returns {Promise<{ providers: object[], plugin_dir: string, load_errors: object[] }>}
+     *   Response from `GET /api/error-codes/providers`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    getErrorCodeProviders: function () {
+      return request('GET', '/error-codes/providers');
+    },
+
+    /**
+     * Fetch the error-code allocator's config. Every secret field is masked
+     * to `{ set: boolean }` — never the raw value.
+     *
+     * @returns {Promise<object & { warning?: string }>} Config from
+     *   `GET /api/error-codes/config`. `warning` is present only when
+     *   `config.json` needed salvage or could not be used as stored — never
+     *   a stored value or a parser message.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    getErrorCodeConfig: function () {
+      return request('GET', '/error-codes/config');
+    },
+
+    /**
+     * Update the error-code allocator's top-level config and/or one
+     * provider's settings.
+     *
+     * @param {{ active_provider?: string, temporary_prefix?: string, timeout_ms?: number,
+     *   retry?: { default_wait_ms?: number, max_wait_ms?: number }, provider_id?: string,
+     *   settings?: Record<string, unknown>, clear_secrets?: string[] }} data - Fields to update.
+     *   `settings`/`clear_secrets` apply only when `provider_id` is present.
+     * @returns {Promise<object>} Updated config from `PUT /api/error-codes/config`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    updateErrorCodeConfig: function (data) {
+      return request('PUT', '/error-codes/config', data);
+    },
+
+    /**
+     * Connection-tests a provider's settings without allocating a code.
+     *
+     * @param {string} providerId - Provider ID to test.
+     * @param {Record<string, unknown>} [settings] - Settings to test; an absent/empty
+     *   secret is merged from the stored value only when every non-secret field
+     *   matches its stored value (fail-closed — see `mergeSettingsForTest`).
+     * @returns {Promise<{ supported: boolean, secrets_merged: boolean, ok?: boolean,
+     *   reason?: string, detail?: string, value?: number, message?: string }>}
+     *   Response from `POST /api/error-codes/test`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    testErrorCodeProvider: function (providerId, settings) {
+      return request('POST', '/error-codes/test', { provider_id: providerId, settings: settings });
+    },
+
+    /**
+     * Fetch logged temporary error codes, newest-first.
+     *
+     * @param {number} [limit] - Maximum entries to return (default 200 server-side).
+     * @returns {Promise<{ entries: object[], warning?: string }>} Response from `GET /api/error-codes/temporary`; `warning` is set when the log is corrupt.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    getTemporaryErrorCodes: function (limit) {
+      return request('GET', '/error-codes/temporary' + buildQueryString({ limit: limit }));
     },
 
     // -- Orchestrator --------------------------------------------------

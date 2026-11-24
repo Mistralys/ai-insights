@@ -42,6 +42,8 @@ Save the configuration to:
 {PLAN_PATH}/pipeline-configuration.md
 ```
 
+The file is an input for the next steps, not a report. The Project Manager checks it for verifier-only WPs, and the Ledger Bootstrapper creates the WPs from it. Neither sees this session's reply.
+
 ## Available Pipeline Types
 
 The pipeline types, in canonical order:

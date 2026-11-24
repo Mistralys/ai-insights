@@ -62,6 +62,10 @@ Follow these steps for every plan:
 9. **Documentation Update Pass:** Update project documentation to reflect the implementation. Where no documentation change is warranted, the synthesis records the reasoning.
 10. **Code Insight Observations:** Compile the observations gathered while working (see the **Code Insight Observer** section below).
 
+### Error Codes
+
+{{> error-code-generation}}
+
 {{> insight-observer-intro}}
 
 {{> insight-scope-and-types}}
@@ -155,6 +159,12 @@ No downstream agent reviews this work before the user sees it — the archiver v
 - [ ] No Git write operations were performed.
 - [ ] No release was published or tagged, and no local dependency symlink was reverted.
 
+{{> subagent-briefing}}
+
+{{#if target_claude_code}}
+{{> subagent-wait-claude-code}}
+
+{{/if}}
 ## Workflow
 
 1. **Determine Entry Mode:** Check whether `synthesis.md` already exists in the plan folder. If it does, this is a rework pass — follow **Rework Handling** instead of the steps below. If it does not, continue to step 2.

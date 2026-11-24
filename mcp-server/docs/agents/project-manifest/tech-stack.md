@@ -21,6 +21,8 @@
 | `zod` | ^3.24.1 | Runtime schema validation and type inference |
 | `proper-lockfile` | ^4.1.2 | Cross-platform file locking with retry logic |
 
+No HTTP client dependency is added for the `errorcode-incrementor` error-code provider (`src/error-codes/providers/errorcode-incrementor-provider.ts`): it uses Node's global `fetch` directly, and the core's own `AbortSignal.timeout()`-derived `ctx.signal` (see `allocator.ts`) for its request timeout — both already available on the Node version this project targets.
+
 ### Development
 
 | Package | Version | Purpose |
@@ -104,11 +106,11 @@ Sits above `LedgerStore` and the plain-function modules. Adds store-level routin
 ### 3. **Atomic Write Pattern**
 
 All file writes use the **write-to-temp-then-rename pattern**:
-1. Write JSON to `{filePath}.tmp.{pid}`
+1. Write JSON to `{filePath}.tmp.{pid}.{uuid}`
 2. Use `fs.rename()` to atomically replace target file (POSIX semantics)
 3. Clean up temp file on error
 
-This ensures readers never see partial writes.
+This ensures readers never see partial writes. The `{uuid}` suffix (`crypto.randomUUID()`) makes the temp path unique per *call*, not just per process, so two concurrent unlocked writers to the same target within one process never share a temp path.
 
 **Key Files:**
 - `src/storage/atomic-writer.ts`
@@ -255,7 +257,7 @@ function resolveStore(
 | **predev** | *(auto)* | Runs sync-version before dev |
 | **build** | `npm run build` | Compile TypeScript to `dist/` for production use |
 | **dev** | `npm run dev` | Run server in development mode with tsx |
-| **pretest** | *(auto)* | Runs `node ../scripts/build-personas.js --check` before every test run — exits 1 if any generated persona file is stale, blocking the test run. This is **one of two** enforcement layers: (1) `pretest` fires when running `npm test` from `mcp-server/`; (2) the `.githooks/pre-commit` hook fires on every commit regardless of which sub-project was touched. Run `node scripts/install-hooks.js` once after cloning to activate the hook. |
+| **pretest** | *(auto)* | Runs `node ../scripts/build-personas.js` (a real build, which regenerates the persona output and may rewrite the gitignored `personas/name-mapping.json`) and then `node ../scripts/build-personas.js --check` before every test run; a failing build or validation error blocks the test run. The `--check` pass renders in memory and does not compare against files on disk, so it does not detect stale output. This is **one of two** validation layers: (1) `pretest` fires when running `npm test` from `mcp-server/`; (2) the `.githooks/pre-commit` hook fires on every commit regardless of which sub-project was touched. Run `node scripts/install-hooks.js` once after cloning to activate the hook. |
 | **test** | `npm test` | Run all tests once (pretest fires first) |
 | **test:watch** | `npm run test:watch` | Run tests in watch mode |
 | **check:roles** | `npm run check:roles` | Validate workflow manifest roles via `scripts/check-known-roles.js` |

@@ -4,6 +4,12 @@
    Depends on: API (api-client.js), UI (components.js), escapeHtml (utils.js),
                configDirty (config.js)
    Must be loaded BEFORE config.js.
+
+   Tab contract (see config.js's CONFIG_TABS registry): this module is
+   registered as { render, leave: csResetState, reset: csResetState }. Stores
+   has no dirty tracking (immediate-write pattern), so both `leave` and
+   `reset` always run the same unconditional reset — unlike Model Registry
+   and Persona Models, there is no "keep state unless discarded" case here.
    ============================================================ */
 
 /* ── Module-level state ──────────────────────────────────── */
@@ -19,7 +25,15 @@
    csModalMode:    null (closed), 'add', or 'edit'.
    csModalStoreId: ID of the store being edited (null in add mode).
    csModalCreateDir: true = create new directory (Add), false = use existing
-                   directory (Import). Defaults to true when opening add mode. */
+                   directory (Import). Defaults to true when opening add mode.
+   csVisit:        Monotonic visit token, incremented by csResetState()
+                   whenever the tab is left or the page is re-rendered. Every
+                   async callback (modal save, refresh, default/remove,
+                   reorder) captures it before the request and returns early
+                   when it no longer matches, so a late response can never
+                   write into another tab's DOM or repopulate state that was
+                   just cleared (same pattern as config-error-codes.js's
+                   ecVisit). */
 var csStores        = null;
 var csOriginal      = null;
 var csReorderMode   = false;
@@ -27,6 +41,30 @@ var csModalMode     = null;
 var csModalStoreId  = null;
 var csModalCreateDir = true;
 var csClickHandler  = null;
+var csVisit         = 0;
+
+/**
+ * Leave the tab (or reload the page): invalidate every in-flight request and
+ * drop all cached state — close any open modal, release the delegated click
+ * handler, and reset every cs* field. Stores has no dirty tracking, so this
+ * one function serves as both `leave` and `reset` in config.js's CONFIG_TABS
+ * registry; it always runs unconditionally (no discard check).
+ *
+ * Called by config.js on every exit from this tab and on page re-render —
+ * config.js keeps no list of this module's fields.
+ */
+function csResetState() {
+  csVisit++;
+  var overlay = document.getElementById('cs-modal-overlay');
+  if (overlay) closeModal(overlay);
+  var contentEl = document.getElementById('config-tab-content');
+  if (contentEl && csClickHandler) contentEl.removeEventListener('click', csClickHandler);
+  csClickHandler = null;
+  csStores = csOriginal = null;
+  csReorderMode = false;
+  csModalMode = csModalStoreId = null;
+  csModalCreateDir = true;
+}
 
 /* Store ID validation regex — mirrors SLUG_REGEX from src/schema/common.ts. */
 var CS_SLUG_REGEX = /^[a-zA-Z0-9][a-zA-Z0-9_-]*$/;
@@ -355,6 +393,8 @@ function csHandleModalSave() {
   var labelInput = document.getElementById('cs-modal-label');
   var label = labelInput ? labelInput.value.trim() : '';
 
+  var visit = csVisit;
+
   if (csModalMode === 'edit') {
     /* Guard: empty label has two outcomes depending on whether the store had one.
        The API requires label: string, so sending {} would fail with 'Required'. */
@@ -374,12 +414,14 @@ function csHandleModalSave() {
     }
     API.updateStore(csModalStoreId, { label: label })
       .then(function (stores) {
+        if (visit !== csVisit) return;
         closeModal(document.getElementById('cs-modal-overlay'));
         csModalMode = null;
         csModalStoreId = null;
         csRefreshWithStores(stores);
       })
       .catch(function (err) {
+        if (visit !== csVisit) return;
         if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = 'Save'; }
         if (modalErr) showError(modalErr, 'Save failed: ' + (err.message || String(err)));
       });
@@ -398,6 +440,7 @@ function csHandleModalSave() {
   var apiCall = csModalCreateDir ? API.addStore(data) : API.importStore(data);
 
   apiCall.then(function (result) {
+    if (visit !== csVisit) return;
     closeModal(document.getElementById('cs-modal-overlay'));
     csModalMode = null;
     csModalStoreId = null;
@@ -406,6 +449,7 @@ function csHandleModalSave() {
     var warning       = result && result.warning ? result.warning : null;
     csRefreshWithStores(updatedStores, warning);
   }).catch(function (err) {
+    if (visit !== csVisit) return;
     if (saveBtn) { saveBtn.disabled = false; saveBtn.textContent = csModalMode === 'add' ? 'Add Store' : 'Save'; }
     if (modalErr) showError(modalErr, (csModalCreateDir ? 'Add' : 'Import') + ' failed: ' + (err.message || String(err)));
   });
@@ -417,10 +461,13 @@ function csHandleModalSave() {
 function csRefreshTab() {
   var contentEl = document.getElementById('config-tab-content');
   if (!contentEl) return;
+  var visit = csVisit;
   API.getStores().then(function (stores) {
+    if (visit !== csVisit) return;
     contentEl.innerHTML = renderStoresTab(stores);
     csWireEvents();
   }).catch(function (err) {
+    if (visit !== csVisit) return;
     showError(contentEl, 'Failed to reload stores: ' + (err.message || String(err)));
   });
 }
@@ -498,9 +545,14 @@ function csWireEvents() {
     if (target.classList.contains('cs-default-star') && target.classList.contains('cs-star-outline')) {
       var storeId = target.getAttribute('data-store-id');
       target.disabled = true;
+      var defaultVisit = csVisit;
       API.setDefaultStore(storeId)
-        .then(function (stores) { csRefreshWithStores(stores); })
+        .then(function (stores) {
+          if (defaultVisit !== csVisit) return;
+          csRefreshWithStores(stores);
+        })
         .catch(function (err) {
+          if (defaultVisit !== csVisit) return;
           target.disabled = false;
           csShowTableError('Failed to set default: ' + (err.message || String(err)));
         });
@@ -530,12 +582,15 @@ function csWireEvents() {
       if (!confirm(confirmMsg)) return;
       removeBtn.disabled = true;
       removeBtn.textContent = 'Removing\u2026';
+      var removeVisit = csVisit;
       API.removeStore(removeStoreId)
         .then(function (result) {
+          if (removeVisit !== csVisit) return;
           var updatedStores = result && result.stores ? result.stores : result;
           csRefreshWithStores(updatedStores);
         })
         .catch(function (err) {
+          if (removeVisit !== csVisit) return;
           removeBtn.disabled = false;
           removeBtn.textContent = 'Remove';
           csShowTableError('Remove failed: ' + (err.message || String(err)));
@@ -678,8 +733,11 @@ function csMoveStore(fromIdx, toIdx) {
     for (var j = 0; j < moveBtns.length; j++) moveBtns[j].disabled = true;
   }
 
+  var moveVisit = csVisit;
+
   API.reorderStores(order)
     .then(function (stores) {
+      if (moveVisit !== csVisit) return;
       csStores   = stores.slice(0);
       csOriginal = stores.slice(0);
       /* Re-render to reflect server-confirmed order */
@@ -689,6 +747,7 @@ function csMoveStore(fromIdx, toIdx) {
       }
     })
     .catch(function (err) {
+      if (moveVisit !== csVisit) return;
       /* Revert the optimistic swap before re-rendering. */
       var tmp2      = csStores[fromIdx];
       csStores[fromIdx] = csStores[toIdx];

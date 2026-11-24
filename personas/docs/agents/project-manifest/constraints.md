@@ -21,7 +21,7 @@
 2. **`README.md` is not generated.** The `personas/ledger/README.md` is hand-authored and serves as the user-facing workflow guide. It is excluded from the build process.
 
 <a name="c2a"></a>
-3. **Directory layout — generated vs. source.** Use the auto-generated tree in `.context/personas/file-structure.md` for structural navigation. The table below clarifies which directories are generated output vs. hand-authored source:
+3. **Directory layout — generated vs. source.** Use the curated [`file-tree.md`](file-tree.md) for structural navigation. The table below clarifies which directories are generated output vs. hand-authored source:
 
    | Directory | Generated? | Purpose |
    |-----------|-----------|----------|
@@ -51,12 +51,15 @@
 ## Persona Content Philosophy
 
 <a name="c4"></a>
+<a name="c5"></a>
 5. **Persona content must add value the self-documenting tools cannot provide.** The ledger's `next_steps` arrays, `--- NEXT STEP ---` guidance blocks, and Zod parameter descriptions are the runtime source of truth. A persona's job is to provide **identity, methodology, and decision-making framework** — not to duplicate tool documentation. When tool self-documentation already covers a behavior (e.g., wait-action reasons, required parameters), do not restate it in persona content. When persona content enumerates tool parameters or action names, it must match the implementation exactly or defer to the tool descriptions entirely.
 
 <a name="c4a"></a>
+<a name="c5a"></a>
 5a. **Numbered workflow steps in persona content templates are immutable structural contracts.** When a new phase partial is added to a persona's content template, a corresponding numbered-step entry must be added in the same implementation change — never deferred to a follow-up. An agent following only the numbered steps will silently skip any phase that exists as a partial but has no matching step entry. Before closing a persona-modification PR, cross-check the count of numbered workflow steps against the count of phase partials included in that template to confirm parity. The Documentation pipeline is responsible for catching step/partial count mismatches during its review pass.
 
 <a name="c4b"></a>
+<a name="c5b"></a>
 5b. **Reference documents stay separate from persona content — never embed.** When a persona always loads an external reference document (e.g., the Persona Curator loads `personas/docs/persona-design-guide.md`), keep the document as a separate file read via tool call at session start. Do not embed reference material into the persona content, even though the effective per-session token cost is the same. Rationale:
 
    - **Single source of truth.** Reference documents evolve independently. Embedding creates a second copy that can drift from the canonical file without automated detection.
@@ -65,6 +68,7 @@
    - **Context efficiency.** A tool-call load enters the conversation at a specific point. Embedded system-prompt content competes for model attention on every turn, including simple follow-ups that do not need the reference.
 
 <a name="c4c"></a>
+<a name="c5c"></a>
 5c. **Recurring Operating Philosophy principles use their canonical name from the registry below.** The [Persona Design Guide](../../persona-design-guide.md) § "Recurring Principles Across a Persona Suite" defines the naming rules; this registry is the project-local vocabulary those rules operate on. The guide is a distributed document used to curate persona suites in unrelated projects and domains, so the inventory of *this* project's principles belongs here rather than in the guide.
 
    **Canonical names:**
@@ -101,6 +105,7 @@
    A principle appearing in a second persona is added to this registry at that point, which is what keeps its name from forking. Renaming a registered principle requires updating every persona listed against it in the same change.
 
 <a name="c4d"></a>
+<a name="c5d"></a>
 5d. **Published artifacts carry no project-specific content.** Some files in this repository are consumed by unrelated downstream projects, which fetch them over HTTPS and overwrite their local copy on every sync. AI-Insights-specific content added to one of them ships to every consumer, and they cannot remove it — the next sync restores it.
 
    **Published artifacts:**
@@ -120,6 +125,7 @@
    > **Why this needs stating:** these files look exactly like ordinary project documentation from inside the workspace — same directory, same Markdown, same Git history. The only in-file signal is the header block, which is easy to read past. When in doubt, check whether the file appears in the table above.
 
 <a name="c4e"></a>
+<a name="c5e"></a>
 5e. **This project's persona layout is not the layout the Persona Curator can assume.** Because `persona-curator.md` is published (C5d), it describes persona work in role terms — "the project's copy of the guide", "the persona's metadata file", "per-target output directories" — rather than naming paths. Downstream consumers use a flat `personas/src/` + `personas/meta/` layout with no suite subdivision and different target directories, so a hardcoded path in that file is wrong everywhere except here.
 
    The concrete values for **this** workspace:
@@ -137,6 +143,7 @@
    An agent operating the Curator inside this workspace resolves the role terms against this table. An agent editing the Curator keeps the role terms in place — adding a path back into that file re-breaks every downstream consumer.
 
 <a name="c4f"></a>
+<a name="c5f"></a>
 <a name="nested-delegation"></a>
 5f. **Nested delegation between documentation personas follows the caller's plan.** The principle is stated in the [Persona Design Guide](../../persona-design-guide.md#nested-delegation), Pattern 9 → "Nested Delegation", and is not restated here. This entry records where this suite implements it. The guide is a published artifact (C5d), so these project-specific locations belong here rather than in the guide.
 
@@ -291,7 +298,7 @@
 <a name="c48"></a>
 24. **`mcp_server_name` in `_shared.yaml` controls the MCP server reference** everywhere in generated output and must match the server key used by `scripts/install-mcp-global.js` (default: `central_pm`). If the server name changes, update this field, rebuild personas, and update `install-mcp-global.js` — see the Cross-System Dependencies table in `AGENTS.md`.
 
-   > **Shadowing risk:** Per-persona YAML fields shadow shared YAML values via the object spread in the build context. If `mcp_server_name` changes globally, update **both** `personas/ledger/src/meta/_shared.yaml` and `personas/ledger-support/src/meta/_shared.yaml`. The `standalone` suite has no `mcp_server_name` in its `_shared.yaml` (see [constraint 14](#c19)) and none of its personas should hardcode it.
+   > **Shadowing risk:** Per-persona YAML fields shadow shared YAML values via the object spread in the build context. If `mcp_server_name` changes globally, update **both** `personas/ledger/src/meta/_shared.yaml` and `personas/ledger-support/src/meta/_shared.yaml`. The `standalone` suite has no `mcp_server_name` in its `_shared.yaml` (see [constraint 14](#c19)) — that restriction binds `_shared.yaml` only. A standalone persona granted a narrow MCP tool capability (e.g. `developer-standalone`, `web-gui-specialist` — error-code allocation) sets `mcp_server_name` per-persona instead, per the field's documented per-persona override in [api-surface.md](api-surface.md#standalone-per-persona-yaml-slugnameyaml). If the global server name changes, also update every standalone persona YAML that hardcodes it this way.
 
 <a name="c49"></a>
 25. **Every persona change requires a version bump, date update, and changelog entry.** When any persona source file is modified (YAML metadata in `src/meta/`, content template in `src/content/`, or a partial in `src/partials/` that affects generated output), the agent performing the change **must** complete all three steps before finishing:
@@ -337,17 +344,14 @@
 <a name="generated-artefacts"></a>
 ## Generated Artefacts
 
-Several tracked files are written by build commands rather than by hand: `personas/name-mapping.json`, `.context/**`, `docs/references/agents-overview.md` and `personas/docs/audits/status.md`. The hub's [Generated Artefacts](../../../../docs/agents/project-manifest/generated-artefacts.md) document records, per file, which command writes it, what it is derived from, and when discarding a modified copy is safe or unsafe. The rules below are what follows from that table.
+Several tracked files are written by build commands rather than by hand: `docs/references/agents-overview.md` and `personas/docs/audits/status.md`. `personas/name-mapping.json` is also written by a build command, but it is not tracked — it is listed in `.gitignore` and regenerated per clone, since its `model`, `model_slug` and `cc_model` fields come from each user's gitignored model registry files. The hub's [Generated Artefacts](../../../../docs/agents/project-manifest/generated-artefacts.md) document records, per file, which command writes it, what it is derived from, and when discarding a modified copy is safe or unsafe. The rules below are what follows from that table.
 
 - Classify a modified tracked file against the hub's `generated-artefacts.md` before discarding it.
 - Follow the [Git Committer](../../../standalone/src/content/git-committer.md)'s generated-artefact rules; it is the authority for this practice. On a feature branch, leave generator drift out of every commit and revert it by path before integrating upstream. Commit a generated file whose source the branch changed together with that change.
-- Commit `.context/` output only on `main`, as its own `CTX: Updated docs` commit. On a feature branch, treat every `.context/` change as drift.
 - Never commit a generated file whose diff is only a timestamp or date.
-- Keep a runtime-coupled artefact when the branch changed its source. Regenerate `personas/name-mapping.json` with `node scripts/build-personas.js` and commit it with the persona change, since the MCP server loads it at startup.
-- Treat a `personas/name-mapping.json` diff confined to `model`, `model_slug` and `cc_model` as machine-local drift from the gitignored model registry, not as a change to commit.
-- Never revert a hand-maintained neighbour. `personas/package.json`, the output directories' `.gitkeep` files, `context.yaml`, `personas/module-context.yaml` and `personas/docs/audits/notes.md` / `annotations.json` are source.
+- `personas/name-mapping.json` is ignored, not tracked: never stage or commit it, and a missing copy after a clone or pull is routine, not a regression. Regenerate it with `node scripts/build-personas.js` (or `node scripts/cli.js setup`/`doctor`, which detect and repair the missing file); the MCP server's `getAgentNames()` loader tolerates its absence rather than requiring it at startup.
+- Never revert a hand-maintained neighbour. `personas/package.json`, the output directories' `.gitkeep` files and `personas/docs/audits/notes.md` / `annotations.json` are source.
 - Never discard by whole-tree restore. Revert by path only, since a whole-tree restore also discards uncommitted source work.
-- Run `node scripts/cli.js ctx-generate` only with the manifests, READMEs and source it imports in their intended state: it deletes `.context/` and regenerates it from them. Root `AGENTS.md` is not among its inputs.
 - When unsure whether a file is generated, leave it and ask the user.
 
 ---
@@ -378,7 +382,7 @@ Several tracked files are written by build commands rather than by hand: `person
 32. **`identity` is required in every persona YAML.** All personas across all three suites (ledger, standalone, ledger-support) must have a top-level `identity:` field whose value matches the role title in the `**Identity: {{identity}}.**` mission header. This field is the single source of truth for the persona's role label and is used by `scripts/generate-agents-overview.js`.
 
 <a name="c55"></a>
-33. **Overview metadata fields must be kept current.** When a persona's purpose, behavior, or operating modes change, update the corresponding YAML fields: `use_when` (standalone/support), `key_behavior` (all suites), `modes` (personas with distinct modes), `inputs`/`outputs` (ledger personas), `notes` (optional freeform). After modifying any overview field, run `node scripts/generate-agents-overview.js` (or `node scripts/cli.js build-maintain`) to regenerate `docs/references/agents-overview.md`.
+33. **Overview metadata fields must be kept current.** When a persona's purpose, behavior, or operating modes change, update the corresponding YAML fields: `use_when` (standalone/support), `key_behavior` (all suites), `modes` (personas with distinct modes), `inputs`/`outputs` (ledger personas), `notes` (optional freeform). After modifying any overview field, run `node scripts/build-personas.js` (a real build regenerates the overview; `node scripts/cli.js build-maintain` does too) to regenerate `docs/references/agents-overview.md`.
 
 <a name="c56"></a>
 34. **Do not edit `docs/references/agents-overview.md` manually.** The file is generated by `scripts/generate-agents-overview.js` from persona YAML metadata. Manual edits will be overwritten on the next generation run. The generated-by comment at the top of the file marks it as auto-generated. To change overview content, update the persona YAML fields or the header template at `scripts/templates/agents-overview-header.md`.

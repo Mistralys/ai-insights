@@ -13,6 +13,7 @@ import { watch } from 'fs';
 import type { FSWatcher } from 'fs';
 import { z } from 'zod';
 import { atomicWriteJson } from '../storage/atomic-writer.js';
+import { hasErrorCode } from '../utils/node-errors.js';
 
 // ---------------------------------------------------------------------------
 // Schema & Types
@@ -83,7 +84,7 @@ export async function readConfigFromDisk(configPath: string): Promise<GuiConfig>
   try {
     raw = await readFile(configPath, 'utf-8');
   } catch (err: unknown) {
-    if (isNodeError(err) && err.code === 'ENOENT') {
+    if (hasErrorCode(err, 'ENOENT')) {
       // File doesn't exist — write defaults and return them
       process.stderr.write(
         `[config] gui-config.json not found at ${configPath}, creating with defaults\n`
@@ -201,7 +202,7 @@ export function startConfigWatcher(configPath: string): void {
             }
           })
           .catch((err: unknown) => {
-            if (isNodeError(err) && err.code === 'ENOENT') {
+            if (hasErrorCode(err, 'ENOENT')) {
               process.stderr.write(
                 `[config] File watcher: ${configPath} deleted, retaining cache\n`
               );
@@ -259,10 +260,3 @@ export function __resetForTesting(): void {
   _cache = { ...DEFAULT_CONFIG };
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
-function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && 'code' in err;
-}

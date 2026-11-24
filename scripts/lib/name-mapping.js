@@ -116,6 +116,31 @@ function stem(filename) {
 }
 
 /**
+ * Returns the absolute path to `name-mapping.json` inside the given
+ * `personas/` directory. `personas/name-mapping.json` is a generated build
+ * artefact (untracked — see `.gitignore`), so every consumer that needs its
+ * path goes through this single function rather than inlining the join.
+ *
+ * @param {string} personasDir - absolute path to the `personas/` directory
+ * @returns {string}
+ */
+export function nameMappingPath(personasDir) {
+  return path.join(personasDir, 'name-mapping.json');
+}
+
+/**
+ * Returns `true` when `name-mapping.json` exists inside the given
+ * `personas/` directory, `false` otherwise (e.g. a fresh clone before the
+ * first persona build has run).
+ *
+ * @param {string} personasDir - absolute path to the `personas/` directory
+ * @returns {boolean}
+ */
+export function isNameMappingPresent(personasDir) {
+  return fs.existsSync(nameMappingPath(personasDir));
+}
+
+/**
  * Derives the role name for a non-ledger persona by stripping the known suite
  * suffix from the persona's `name` field.
  * e.g. "Developer (Standalone)"  → "Developer"

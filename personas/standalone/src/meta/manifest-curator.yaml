@@ -5,6 +5,31 @@ vs_file_name: manifest-curator.agent.md
 id: standalone-manifest-curator
 cc_file_name: manifest-curator.md
 changelog: |
+  2.0.0 (2026-11-10): Retired `api-surface.md` in favour of `architecture-notes.md`, which keeps only what the code
+    cannot show about itself: cross-boundary contracts with their producers and consumers, architectural decisions
+    with the source of their rationale, and runtime substrate outside the tracked tree. The One-File Test decides
+    what qualifies. Per-class and per-method descriptions belong in code comments, and gaps there are reported to the
+    file's owner, never written by the curator. Update proposes an item-by-item migration of an existing
+    `api-surface.md` and waits for approval; Audit flags one still present. The internal-consistency check now
+    resolves every named symbol in the codebase, and rationale may be sourced from commits, plans or the user.
+  1.10.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
+  1.10.1 (2026-10-28): The shared `subagent-briefing` section now has a dispatch prompt name the file the next step
+    reads the sub-agent's result from: the output file is part of the task, not the method. Without it, Claude Code's
+    own note telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that
+    skipped `audit.md`.
+  1.10.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full.
+  1.9.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
   1.8.0 (2026-10-16): Skips its CTX delegation when a caller's plan still has the CTX Architect to come, naming the changed manifest sections in its report instead; a stage the plan marks skipped counts as already decided
   1.7.0 (2026-10-16): Added generated-artefacts.md — a manifest document recording which tracked files a build writes, the command behind each, and when discarding each is safe, with the Generated Artefacts Inventory procedure (contents, verdict rules, constraints.md template, triggers); Create, Update and Audit each gained a checkpoint step; a caller-announced CTX stage also earns the .context/** row; hand-maintained neighbours are decided from build scripts and put to the user when the scripts cannot settle them; git ls-files joined the read-only Git commands
   1.6.2 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat

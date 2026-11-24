@@ -130,6 +130,12 @@ Where a project has no manifest at all, raise it with the user and name the **{{
 
 {{> documentation-ownership}}
 
+{{> subagent-briefing}}
+
+{{#if target_claude_code}}
+{{> subagent-wait-claude-code}}
+
+{{/if}}
 ## Core Rules
 
 ### Grounding

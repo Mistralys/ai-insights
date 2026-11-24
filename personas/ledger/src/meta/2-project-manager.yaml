@@ -7,13 +7,37 @@ id: ledger-2-pm
 cc_file_name: 2-project-manager.md
 da_file_name: 2-project-manager.md
 changelog: |
-  3.12.0 (2026-10-16): Step 11's two stage-correction instructions now call `ledger_update_pipeline_stages`
+  3.16.0 (2026-11-24): Step 11's two stage-correction instructions now call `ledger_update_pipeline_stages`
     instead of recreating the WP — recreation changes the WP ID and orphans every dependent that
     references it. Step 9's rationale sentence for rejecting verifier-only WPs before registration now
     cites cheaper draft-stage correction rather than "the only remedy is to recreate it", since
     recreation is no longer the only remedy post-registration. Step 12 now also confirms each WP's
     `active_pipeline_stages` against `pipeline-configuration.md` before the step 13 handoff.
     `ledger_update_pipeline_stages` added to `mcp_tools`
+  3.15.0 (2026-10-29): The five sub-agent dispatch steps now continue on the agent's report rather than its task
+    notification. The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed. The Claude Code handoff block now ends the turn
+    with `HANDED OFF: {next_agent}` after launching a successor, so whoever dispatched this agent knows the chain is
+    still running.
+  3.14.0 (2026-10-28): The WP Decomposer (both modes), Dependency Sequencer and Pipeline Configurator dispatches now
+    carry the path of the file named under Expected output. The shared `subagent-briefing` section now has a dispatch
+    prompt name the file the next step reads the sub-agent's result from: the output file is part of the task, not the
+    method. Without it, Claude Code's own note telling sub-agents to return findings as a reply wins, as it did for a
+    Plan Auditor on 2026-10-28 that skipped `audit.md`.
+  3.13.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full. The four per-dispatch "built-in persona" notes now point to that section.
+  3.12.0 (2026-10-26): Claude Code dispatches now wait for the sub-agent's task notification by ending the turn,
+    via the new shared `subagent-wait-claude-code` section; every dispatch runs in the background, and the PM
+    was filling the gap with `until` loops on files it expected — once on a `.ledger` folder the ledger never
+    creates, which hung runs for up to 40 hours. Each Claude Code dispatch step now names the task notification
+    as its continuation. Auto-handoff likewise passes only `subagent_type`, `description` and `prompt`, and ends
+    the stage once the launch acknowledgement returns — a `name` started successors as teammates outside the dispatcher's task, told
+    to report through a `SendMessage` tool they never had, and `run_in_background: false` is ignored
+    since every dispatch runs in the background
   3.11.2 (2026-10-15): Dependency Sequencer's expected output now includes the renumbered draft
   3.11.1 (2026-10-08): Added `TodoRead`/`TodoWrite` to `cc_tools`, matching the VS Code `todo` grant already present
   3.11.0 (2026-10-06): New step 9 rejects verifier-only WPs before the Bootstrapper runs — it reads the

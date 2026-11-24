@@ -10,15 +10,12 @@
  * to notice — which is exactly the gap that let four tools go undocumented
  * across several review cycles.
  *
- * `ledger_help` itself is exempt: it has no TOOL_HELP entry or overview row
- * (it IS the help system) and is never expected to.
+ * Every registered tool is covered, `ledger_help` included.
  */
 import { describe, it, expect, vi } from 'vitest';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { registerAllTools, type ToolModule } from '../../src/tools/registry.js';
 import { TOOL_HELP } from '../../src/tools/help-content.js';
-
-const HELP_EXEMPT_TOOL = 'ledger_help';
 
 /** Builds a mock McpServer that only needs to satisfy registerAllTools' recording shim. */
 function createMockServer(): McpServer {
@@ -26,19 +23,18 @@ function createMockServer(): McpServer {
 }
 
 /**
- * Registered tool names, other than `ledger_help`, that have no TOOL_HELP entry.
+ * Registered tool names that have no TOOL_HELP entry.
  */
 function findMissingHelpEntries(registeredNames: string[], toolHelp: Record<string, string>): string[] {
-  return registeredNames.filter((name) => name !== HELP_EXEMPT_TOOL && !(name in toolHelp));
+  return registeredNames.filter((name) => !(name in toolHelp));
 }
 
 /**
- * Registered tool names, other than `ledger_help`, with no row in the overview table.
+ * Registered tool names with no row in the overview table.
  * A "row" is a `| <name> |` cell match against the raw overview markdown.
  */
 function findMissingOverviewRows(registeredNames: string[], overviewText: string): string[] {
   return registeredNames.filter((name) => {
-    if (name === HELP_EXEMPT_TOOL) return false;
     const rowPattern = new RegExp(`\\|\\s*${name}\\s*\\|`);
     return !rowPattern.test(overviewText);
   });
@@ -57,12 +53,12 @@ describe('help-content-coverage — real registry cross-check', () => {
   const registeredNames = registerAllTools(createMockServer());
   const overviewText = TOOL_HELP['overview']!;
 
-  it('every registered tool other than ledger_help has a TOOL_HELP entry', () => {
+  it('every registered tool has a TOOL_HELP entry', () => {
     const missing = findMissingHelpEntries(registeredNames, TOOL_HELP);
     expect(missing, `Missing TOOL_HELP entries for: ${missing.join(', ')}`).toEqual([]);
   });
 
-  it('every registered tool other than ledger_help has an overview table row', () => {
+  it('every registered tool has an overview table row', () => {
     const missing = findMissingOverviewRows(registeredNames, overviewText);
     expect(missing, `Missing overview table rows for: ${missing.join(', ')}`).toEqual([]);
   });
@@ -70,11 +66,6 @@ describe('help-content-coverage — real registry cross-check', () => {
   it('no TOOL_HELP key names a tool absent from the registry', () => {
     const orphaned = findOrphanedHelpKeys(registeredNames, TOOL_HELP);
     expect(orphaned, `TOOL_HELP keys with no matching registered tool: ${orphaned.join(', ')}`).toEqual([]);
-  });
-
-  it('ledger_help itself has no TOOL_HELP entry or overview row (it is the help system)', () => {
-    expect(TOOL_HELP[HELP_EXEMPT_TOOL]).toBeUndefined();
-    expect(new RegExp(`\\|\\s*${HELP_EXEMPT_TOOL}\\s*\\|`).test(overviewText)).toBe(false);
   });
 });
 
@@ -116,12 +107,6 @@ describe('help-content-coverage — synthetic fixtures prove the checks actually
     const overview = '| Tool | Purpose |\n|------|---------|\n| ledger_synthetic_tool | does a thing |\n';
     const missing = findMissingOverviewRows(names, overview);
     expect(missing).toEqual([]);
-  });
-
-  it('never flags ledger_help as missing an entry or row even when registered', () => {
-    const names = registerSynthetic(['ledger_help']);
-    expect(findMissingHelpEntries(names, {})).toEqual([]);
-    expect(findMissingOverviewRows(names, '# Overview')).toEqual([]);
   });
 
   it('fails (reports an orphan) when a TOOL_HELP key names no registered tool', () => {

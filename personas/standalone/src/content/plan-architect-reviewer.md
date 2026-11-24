@@ -44,6 +44,8 @@ A structured design review containing:
 
 Save the review alongside the plan it reviews. If the plan is at `/docs/agents/plans/{DATE}-{NAME}/plan.md`, save the review as `/docs/agents/plans/{DATE}-{NAME}/design-review.md`.
 
+`design-review.md` is an input file for the next step, not a report. The Planner reads it to integrate the decisions it challenges, and does not see this session's reply.
+
 ## Scope Boundaries
 
 This review runs in parallel with the Plan Auditor's, and the two territories are deliberately disjoint. The separation is load-bearing: it produces two structurally distinct reports the Planner can read side by side.
@@ -242,6 +244,12 @@ Before submitting the review, verify:
 - [ ] The **Roadmap** line reflects whether a roadmap was supplied, and every unanchored Next-Change Cost cell says so.
 - [ ] The **Research brief** line distinguishes "none found" from "used" — and, when used, records whether references were contributed or the size guard made it read-only.
 
+{{> subagent-briefing}}
+
+{{#if target_claude_code}}
+{{> subagent-wait-claude-code}}
+
+{{/if}}
 ## Workflow
 
 1. **Ingest the Plan:** Read the plan document end-to-end. Identify the project it targets and its root directory.
@@ -261,7 +269,7 @@ Before submitting the review, verify:
 7. **Weigh and Rule:** Working from the alternatives brief, weigh each candidate against the Evaluation Dimensions, assign a verdict per decision, and sketch the Proposed State for every `Challenge` verdict (Phase 3).
 8. **Synthesize:** Step back and assess the cumulative picture. Determine the overall assessment. Write the Notes for the Planner (Phase 4).
 9. **Contribute Back to the Brief:** If a research brief exists and is writable, append the verified codebase references discovered during steps 5–7 that were not already in it, each prefixed `[added by: Plan Architect Reviewer, unverified]`. If the brief was read-only or absent, make no changes — and record which case applied on the report's **Research brief** line.
-10. **Save the Report:** Write the review to the output location alongside the plan as `design-review.md`.
+10. **Write the Planner's Input:** Write the review to the output location alongside the plan as `design-review.md`.
 11. **Handoff:** End the response with:
     ```
     AGENT: Plan Architect Reviewer

@@ -22,6 +22,7 @@
 - [Counter Self-Healing](#counter-self-healing)
 - [Development & Build Constraints](#development--build-constraints)
 - [Manifest Documentation Constraints](#manifest-documentation-constraints)
+- [Error-Code Provider Constraints](#error-code-provider-constraints)
 - [Cross-Platform Constraints](#cross-platform-constraints)
 
 ### Constraint Entry Format
@@ -67,7 +68,7 @@ New entries follow this structure:
 
 **Rationale:** Ensures readers never see partial writes or corrupt JSON.
 
-**Implementation:** Write to `{file}.tmp.{pid}`, then atomically rename to target.
+**Implementation:** Write to `{file}.tmp.{pid}.{uuid}`, then atomically rename to target. The `{uuid}` suffix (`crypto.randomUUID()`) makes the temp path unique per *call*, not just per process: two concurrent unlocked writers to the same target within one process (same `pid`) would otherwise share a temp path and race each other's write-then-rename, corrupting or losing one writer's payload. `withLock` callers are unaffected — they already serialize access — but several call sites in this codebase write without a lock, so the uniqueness has to live in the temp-path construction itself.
 
 **Anti-pattern:**
 ```typescript
@@ -77,7 +78,7 @@ await fs.writeFile(targetPath, JSON.stringify(data, null, 2) + '\n', 'utf-8');
 
 **Correct pattern:**
 ```typescript
-// ✅ CORRECT — write to .tmp.{pid}, then rename; readers never see a partial file
+// ✅ CORRECT — write to .tmp.{pid}.{uuid}, then rename; readers never see a partial file
 await atomicWriteJson(targetPath, data);
 ```
 
@@ -342,6 +343,8 @@ const timestamp = now(); // "2026-02-16T18:00:00Z"
 
 **Implication:** If a process crashes while holding a lock, other processes will wait up to 10 seconds before retrying.
 
+**Test seam:** Production code never changes this policy. A test may install a faster retry policy only through `__setLockRetryForTesting({ minTimeout, maxTimeout })` (`src/storage/file-lock.ts`) — never by constructing its own options object — and must restore the default via `__resetLockOptionsForTesting()` afterwards. See "Lock-Heavy Tests Install the Fast Lock Policy" in `constraints-testing.md`.
+
 ---
 
 ### Lock Retry Count Is 50
@@ -349,6 +352,8 @@ const timestamp = now(); // "2026-02-16T18:00:00Z"
 **Rule:** Lock acquisition is retried up to 50 times with 200ms–1000ms exponential backoff before failing.
 
 **Total retry window:** ~10–50 seconds, ensuring coverage of the 10s stale timeout.
+
+**Test seam invariant:** `__setLockRetryForTesting` derives `retries = Math.ceil(DEFAULT_LOCK_OPTIONS.stale / minTimeout)` rather than accepting a retry count directly, so an installed test policy's retry window can never drop below the 10s stale timeout above — only the backoff interval shrinks. It rejects `minTimeout < 1` or `maxTimeout < minTimeout`.
 
 ---
 
@@ -376,6 +381,32 @@ import { LedgerStore } from '../storage/ledger-store';
 **Convention:** All exports are named exports. No default exports are used.
 
 **Rationale:** Improves refactoring and tooling support.
+
+---
+
+### Tool Modules Are Registered Through `TOOL_MODULES`
+
+**Rule:** A new `src/tools/*.ts` module that calls `server.registerTool(` must be added to `TOOL_MODULES` in `src/tools/registry.ts`. Do not call a tool module's `register()` directly from `src/index.ts`, and do not add the tool's name to a separate hand-written list anywhere — `src/index.ts`'s startup log and `tests/tools/schema-integrity.test.ts`'s tool set are both derived from `TOOL_MODULES` via `registerAllTools`, not maintained independently. Add a `TOOL_HELP` entry (`src/tools/help-content.ts`) for every new tool name in the same change.
+
+**Rationale:** Before this registry existed, the same tool-name list was hand-maintained in three places (`index.ts`'s registration calls, `index.ts`'s startup log literal, and `schema-integrity.test.ts`'s import list) — one of which had already drifted silently, omitting two registered tools. A single derived list removes the drift entirely: `tests/tools/tool-registry.test.ts` fails immediately if a tool module exists in source but is missing from `TOOL_MODULES`, or if a registered tool has no `TOOL_HELP` entry.
+
+**Anti-pattern:**
+```typescript
+// ❌ WRONG — bypasses the registry, and the startup log loses this tool
+import * as myNewTool from './tools/my-new-tool.js';
+myNewTool.register(server);
+```
+
+**Correct pattern:**
+```typescript
+// src/tools/registry.ts
+import * as myNewTool from './my-new-tool.js';
+
+export const TOOL_MODULES: readonly ToolModuleEntry[] = [
+  // ...existing entries...
+  { id: 'my-new-tool', register: myNewTool.register },
+];
+```
 
 ---
 
@@ -542,6 +573,82 @@ npm run sync-version
 
 ---
 
+## Error-Code Provider Constraints
+
+### Error-Code Provider Contract Is Additive-Only Within an API Version
+
+**Rule:** Within `PROVIDER_API_VERSION` (currently `1`), every change to `src/error-codes/provider-api.ts` must be additive: a new optional request field, a new optional `ProviderContext` member, a new optional provider hook, or a new `SettingField` type variant. Never remove, rename, or widen the required-ness of an existing member. An optional hook's capability is signalled purely by its presence (`typeof provider.peek === 'function'`) — do not add a `capabilities` bag or a `ctx.api_version` field; either would duplicate information the hook's presence, or the provider's own declared `apiVersion`, already carries. A genuinely breaking change requires bumping `PROVIDER_API_VERSION` to `2` and adding an adapter so existing `apiVersion: 1` providers keep loading — never a silent breaking edit to the version-1 contract.
+
+**Rationale:** Third-party plugins are loaded from `~/.ai-insights/plugins/error-codes/` and compiled against this contract alone — they cannot be migrated in lockstep with the server. An additive-only contract is the mechanism that keeps a plugin written today working after any future, non-breaking server update.
+
+**Anti-pattern:** Adding a `capabilities: { peek?: boolean }` field to `ErrorCodeProvider`, or a `ctx.api_version` field to `ProviderContext`, "for clarity" — both were explicitly rejected in the plan that introduced this contract; see `provider-api.ts`'s own JSDoc for the full stability-rules list.
+
+**Correct pattern:** Adding a new optional field, e.g. `ctx.locale?: string`, which every existing provider is free to ignore.
+
+---
+
+### Secrets Never Leave the Server
+
+**Rule:** A `type: 'secret'` setting value must never appear in a log line, an error `detail`, a GUI API response, or a stack trace, in any code path that touches the error-code provider system. Enforce this with the existing primitives rather than ad hoc checks:
+- Use `createRedactingLogger` (`src/error-codes/redact.ts`) for every logger handed to a provider or used internally by the allocator, registry, or plugin loader — never construct a raw `{ info, warn }` object that writes to stderr directly in that code path.
+- Pass every value that could contain a secret — including a provider's free-text `detail` — through `redact(text, secrets)` before it leaves the allocator, where `secrets` comes from `collectSecrets(fields, values)` (`src/error-codes/settings-schema.ts`).
+- Render settings for GUI consumption only through `toPublicSettings`, which replaces every secret field with `{ set: boolean }`. Never serialize a raw settings object that includes `type: 'secret'` keys into an HTTP response.
+- The GUI's connection-test endpoint must merge stored secrets into client-supplied settings only via `mergeSettingsForTest`'s fail-closed rule (every non-secret field, of any type, unchanged) — never merge unconditionally, and never merge based on a `url`-only check.
+
+**Rationale:** The error-code provider system is the server's first runtime-loaded plugin surface and its first code path that persists user secrets (API keys, passwords) to disk. A single unredacted log line or API response field is an unrecoverable leak into whatever the server's stderr or GUI client happens to be — terminal scrollback, a log aggregator, or a browser dev-tools network tab.
+
+**Anti-pattern:** `process.stderr.write(`[my-provider] using password ${ctx.settings.password}`)`. `return res.json({ providers: { [id]: rawStoredSettings } })` without routing through `toPublicSettings`.
+
+**Correct pattern:** `ctx.log.info(`connecting to ${host}`)` (the logger redacts automatically); `res.json({ providers: { [id]: toPublicSettings(provider.settings, storedSettings) } })`.
+
+---
+
+### Policy Lives in the Allocator, Not in Providers
+
+**Rule:** Retry, fallback-to-temporary, timeout enforcement, result validation and redaction are implemented exactly once, in `allocateErrorCode()` (`src/error-codes/allocator.ts`). A provider's `allocate`/`peek` only ever answers "what is the next integer, or why not" through the `AllocationOutcome` contract (`ok: true, value` or `ok: false, reason, ambiguous?, retry_after_ms?, detail?`) — it never retries itself, never issues a temporary code itself, and never applies its own timeout beyond passing `ctx.signal` to whatever I/O it performs. The allocator, not the provider, decides whether a `throttled` outcome is retried, whether a failure is ambiguous enough to skip retrying, and when every remaining path falls back to a temporary code.
+
+**Rationale:** A versioned, third-party-extensible contract (see "Error-Code Provider Contract Is Additive-Only Within an API Version" above) can only stay stable if the part every plugin author must get right is kept as small as possible. Spreading retry/fallback policy across providers would let a plugin implement it incorrectly, duplicate it across every backend, and couple any future policy change (e.g. a different backoff formula) to the provider contract itself instead of to one function.
+
+**Anti-pattern:** A provider's `allocate()` catching its own timeout and sleeping before returning, or issuing its own temporary code instead of returning `{ ok: false, reason: 'unavailable', ambiguous: true }` and letting the allocator decide.
+
+**Correct pattern:** A provider returns `{ ok: false, reason: 'throttled', retry_after_ms: 5000 }` and returns immediately; `allocateErrorCode()` is the only caller that waits, retries, or falls back.
+
+---
+
+### Plugins Load Only From the Plugin Directory; the GUI Never Loads Code
+
+**Rule:** `loadPluginProviders()` (`src/error-codes/plugin-loader.ts`) is the only place in the server that dynamically imports code discovered at runtime, and it only ever scans one fixed location: `resolveErrorCodePluginDir()` (`~/.ai-insights/plugins/error-codes/`). A symbolic link in that directory counts as an entry of the directory (it is followed, and adds no trust: whoever can write the link could write the code). No GUI route, config field, or MCP tool parameter may supply or influence the path a plugin is loaded from. The GUI's error-code routes read `listProviders()`/`listProviderLoadErrors()` (`provider-registry.ts`) and let the user pick and configure an already-loaded provider by `id` — they never call `loadPluginProviders()` or `import()` themselves.
+
+**Rationale:** The trust boundary for a plugin is filesystem access to this one fixed directory — the same trust level as `npm install`. The moment any network-reachable surface (the GUI's HTTP API, an MCP tool argument) can name a path to load code from, that surface becomes a remote-code-execution primitive. Fixing the scan to one path, set only by server configuration, keeps "install a plugin" synonymous with "a local user placed a file on this machine's disk."
+
+**Anti-pattern:** A `PUT /api/error-codes/config` body field like `plugin_path`, or an MCP tool parameter that is passed through to `loadPluginProviders()`.
+
+**Correct pattern:** `initProviderRegistry({ pluginDir: resolveErrorCodePluginDir() })`, called once at each process's own startup, with every later `getProvider`/`listProviders` call reading that process's already-built registry.
+
+---
+
+### Error-Code State Files Distinguish Missing From Broken
+
+**Rule:** The error-code state files — the `file` provider's counter file, `temporary-codes.json` and `config.json` — are read through `readJsonStateFile` (`src/storage/json-state-file.ts`), which separates a *missing* file (`ENOENT` only) from a *corrupt* one (read, but not usable) and from an *unreadable* one (any other I/O error, rethrown with its `code`). Only a missing file may start from defaults. Each store then applies its own policy:
+
+| Store | Missing | Unreadable | Corrupt (unparsable or invalid) |
+|-------|---------|------------|---------------------------------|
+| `file` provider counter file | new sequence at `start_value` | `failed` outcome (non-ambiguous), file untouched | `failed` outcome, file untouched — the authority on real codes is never auto-repaired; the allocator issues a temporary code |
+| `temporary-codes.json` | empty log | `issueTemporaryCode` rejects (fails closed); nothing written | recovered under the lock: a byte-identical copy is kept, valid entries are retained, numbering continues above every counter still visible, a `warning` is returned |
+| `config.json` | defaults | read: defaults + stderr warning; update: throws, writes nothing | read: per-field fallback (unparsable: defaults) + stderr warning that names field paths, never values; update of an unparsable file: copy kept first |
+
+**GUI surfacing:** `config.json`'s read-side `warning` is not stderr-only — `readErrorCodeConfig()` (`src/error-codes/config-store.ts`) is also called directly by the GUI's `handleGetErrorCodeConfig`, which returns the same `warning` in the `GET /api/error-codes/config` response so the Error Codes tab can render it as a banner. Like the stderr copy, this value is always the fixed, already-sanitized classification reason or a list of invalid field *paths* — never a field value, and never the raw JSON-parser message.
+
+Every path that replaces broken state keeps the original bytes first with `keepCorruptCopy` (`{name}.corrupt-{stamp}{ext}`, exclusive copy, never overwrites) and then overwrites the original with `atomicWriteJson`. **Copy, never rename:** parallel processes of one user are routine (both MCP servers, the GUI, parallel workflow runs), and an unlocked reader in another process (`listTemporaryCodes`, `loadErrorCodeConfig`, a provider's `peek`) that met a renamed-away file would see "missing" and act on defaults. Every read that decides a file is corrupt and then leads to a write happens inside the lock that guards that write.
+
+**Rationale:** A read that answers every failure with "start from defaults" destroys state on its next write: a corrupt counter file restarts a sequence and reissues codes already embedded in source, a corrupt temporary log reissues `777000001` and drops the history, and one invalid config field wipes every stored provider secret. All three were found in review of the first implementation.
+
+**Anti-pattern:** `try { raw = await readFile(path) } catch { return defaults }` followed by `JSON.parse` in a second catch-all that also returns defaults, then writing the result back. Likewise a plain-object dictionary with untrusted keys (`counters[key] ?? start`), where `constructor` or `__proto__` resolves to an inherited property — the counter file uses a `Map` so every string is a valid key.
+
+**Correct pattern:** `const state = await readJsonStateFile(path); if (state.status === 'missing') { /* defaults */ } else if (state.status === 'unparsable') { /* store-specific: fail, or keepCorruptCopy then recover */ }`, letting an I/O error propagate to the store's own policy.
+
+---
+
 ## Cross-Platform Constraints
 
 ### All Code Must Run on Windows, macOS, and Linux
@@ -550,7 +657,7 @@ npm run sync-version
 
 **File locking:** Uses `proper-lockfile` (cross-platform npm package). Do not replace with a platform-specific alternative.
 
-**Rationale:** The workspace-wide cross-platform policy (see root `AGENTS.md` → Cross-Platform Policy) applies to all sub-projects. The MCP server runs alongside the user's IDE on their desktop OS.
+**Rationale:** The workspace-wide cross-platform policy (see the hub manifest's `docs/agents/project-manifest/constraints.md` → Cross-Platform Policy) applies to all sub-projects. The MCP server runs alongside the user's IDE on their desktop OS.
 
 ---
 
@@ -561,7 +668,7 @@ Some files under `mcp-server/` are written by build and test commands rather tha
 - Classify a modified tracked file against the hub's `generated-artefacts.md` before discarding it.
 - On a feature branch, revert generator drift by path (a `package.json` diff limited to `version`) before integrating upstream.
 - Keep a `package.json` `version` change when the branch edited `changelog.md`; run `npm run sync-version` and commit it with that change.
-- Never revert a hand-maintained neighbour such as `module-context.yaml` or `package-lock.json` as build noise.
+- Never revert a hand-maintained neighbour such as `package-lock.json` as build noise.
 - Never discard by whole-tree restore. Revert by path only, since a whole-tree restore also discards uncommitted source work.
 - Expect `npm test` to rebuild persona output through its `pretest` hook and possibly rewrite `personas/name-mapping.json`; classify that file against the hub document.
 - When unsure whether a file is generated, leave it and ask the user.

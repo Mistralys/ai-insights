@@ -24,6 +24,7 @@ import { withLock } from '../src/storage/file-lock.js';
 import { inferProjectRootFromPlanPath, resolveProjectDir } from '../src/utils/ledger-root.js';
 import { assertSafeSegment } from '../src/utils/path-validator.js';
 import { readProjectName } from '../src/utils/read-project-name.js';
+import { hasErrorCode, isNodeError } from '../src/utils/node-errors.js';
 import { PLAN_ARCHIVE_FILENAME, SYNTHESIS_ARCHIVE_FILENAME, DIALOGUES_DIR, CHUNKS_DIR } from '../src/utils/constants.js';
 import {
   PIPELINE_AGENT_MAP,
@@ -59,7 +60,7 @@ import type {
   ProjectResetResult,
   MarkProjectCompleteResult,
 } from '../src/utils/project-reset.js';
-import { ApiError } from '../src/gui/errors.js';
+import { ApiError, describeZodIssues } from '../src/gui/errors.js';
 import {
   getMultiStoreManager,
   getStoreRouter,
@@ -82,6 +83,29 @@ import { renderChunksToText } from './chunk-renderer.js';
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Tracks the in-flight fire-and-forget self-heal writes issued by
+ * `handleGetProject` (see the write site below). Production code never
+ * awaits these writes — they stay fire-and-forget so no request pays extra
+ * lock latency on every project view — but tests need a way to know when a
+ * given write has landed so teardown doesn't race the write's `rm`. Each
+ * promise is added to this set when the write starts and removed in a
+ * `finally` regardless of outcome, so the set never grows unbounded.
+ */
+const pendingSelfHeals = new Set<Promise<void>>();
+
+/**
+ * Test-only hook: resolves once every self-heal write currently tracked in
+ * `pendingSelfHeals` has settled. Used by test `afterEach` hooks to await
+ * the write before removing the temp directory, instead of sleeping for an
+ * arbitrary duration.
+ *
+ * @internal Test-only. Not part of the public API surface.
+ */
+export async function __awaitPendingSelfHealsForTesting(): Promise<void> {
+  await Promise.all([...pendingSelfHeals]);
+}
 
 function notFound(message: string): never {
   throw new ApiError('NOT_FOUND', message);
@@ -713,9 +737,20 @@ export async function handleGetProject(
 
     // Flush every self-heal update collected above in one fire-and-forget write.
     // A failed write is harmless (the next detail view retries). preserveLastUpdated
-    // avoids distorting project-list sort order on a mere cache refresh.
+    // avoids distorting project-list sort order on a mere cache refresh. The write
+    // is still never awaited by the request — it's tracked in pendingSelfHeals purely
+    // so tests can await its completion (via __awaitPendingSelfHealsForTesting) instead
+    // of sleeping for an arbitrary duration; the entry is removed in finally regardless
+    // of success or failure so the set never grows unbounded.
     if (selfHealUpdates !== undefined) {
-      store.writeProjectMeta('', undefined, selfHealUpdates, { preserveLastUpdated: true }).catch(() => {});
+      const selfHealPromise: Promise<void> = store
+        .writeProjectMeta('', undefined, selfHealUpdates, { preserveLastUpdated: true })
+        .then(() => undefined)
+        .catch(() => undefined)
+        .finally(() => {
+          pendingSelfHeals.delete(selfHealPromise);
+        });
+      pendingSelfHeals.add(selfHealPromise);
     }
 
     const timing = { project_elapsed_ms, total_active_ms, pipeline_runs };
@@ -1027,7 +1062,7 @@ export async function handleUpdateConfig(
   // Validate with the partial schema (ledger_root stripped by schema omission)
   const parseResult = GuiConfigPartialSchema.safeParse(body);
   if (!parseResult.success) {
-    validationError('Invalid config values.', parseResult.error.issues);
+    validationError(`Invalid config values: ${describeZodIssues(parseResult.error.issues)}`, parseResult.error.issues);
   }
 
   return writeConfig(configPath, parseResult.data);
@@ -1071,7 +1106,7 @@ export async function handleResetProject(
   // Validate body
   const parseResult = ResetRequestSchema.safeParse(body);
   if (!parseResult.success) {
-    validationError('Invalid reset request body.', parseResult.error.issues);
+    validationError(`Invalid reset request body: ${describeZodIssues(parseResult.error.issues)}`, parseResult.error.issues);
   }
   const { dry_run, decisions } = parseResult.data;
 
@@ -1162,7 +1197,7 @@ export async function handleRenameProject(
   assertSafeSlug(slug);
   const parseResult = RenameBodySchema.safeParse(body);
   if (!parseResult.success) {
-    validationError('Invalid rename request body.', parseResult.error.issues);
+    validationError(`Invalid rename request body: ${describeZodIssues(parseResult.error.issues)}`, parseResult.error.issues);
   }
   const { title, slug: newSlug } = parseResult.data;
 
@@ -1514,7 +1549,7 @@ export async function handleGetDialogueFile(
     const content = await readFile(filePath, 'utf-8');
     return { content };
   } catch (err: unknown) {
-    if (isNodeError(err) && err.code === 'ENOENT') {
+    if (hasErrorCode(err, 'ENOENT')) {
       notFound(`Dialogue file not found: '${filename}'.`);
     }
     throw err;
@@ -1651,19 +1686,11 @@ export async function handleGetChunkFile(
     const content = await readFile(filePath, 'utf-8');
     return { content };
   } catch (err: unknown) {
-    if (isNodeError(err) && err.code === 'ENOENT') {
+    if (hasErrorCode(err, 'ENOENT')) {
       notFound(`Chunk file not found: '${filename}'.`);
     }
     throw err;
   }
-}
-
-// ---------------------------------------------------------------------------
-// Internal Node.js error type guard (shared by file handlers above)
-// ---------------------------------------------------------------------------
-
-function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && 'code' in err;
 }
 
 // ---------------------------------------------------------------------------
@@ -1730,7 +1757,7 @@ export async function handleGetChunkText(
     const content = await readFile(mdPath, 'utf-8');
     return { content, cached: true };
   } catch (err: unknown) {
-    if (!isNodeError(err) || err.code !== 'ENOENT') {
+    if (!hasErrorCode(err, 'ENOENT')) {
       throw err;
     }
     // ENOENT — fall through to extraction.
@@ -1747,7 +1774,7 @@ export async function handleGetChunkText(
   try {
     chunkContent = await readFile(filePath, 'utf-8');
   } catch (err: unknown) {
-    if (isNodeError(err) && err.code === 'ENOENT') {
+    if (hasErrorCode(err, 'ENOENT')) {
       notFound(`Chunk file not found: '${filename}'.`);
     }
     throw err;

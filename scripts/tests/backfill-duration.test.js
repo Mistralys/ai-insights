@@ -116,7 +116,8 @@ function readMeta(projectDir) {
 
 /**
  * Runs the backfill script as a subprocess against `storeRoot`, isolating it from any
- * real ~/.ai-insights/stores.json by pointing HOME at an empty temp directory so
+ * real ~/.ai-insights/stores.json by pointing HOME (and USERPROFILE, which os.homedir()
+ * reads on Windows) at an empty temp directory so
  * LEDGER_ROOT is the only store-discovery path taken.
  *
  * @param {string} storeRoot
@@ -127,7 +128,7 @@ function runBackfill(storeRoot, args = []) {
   try {
     const result = spawnSync('node', [SCRIPT, ...args], {
       cwd: ROOT,
-      env: { ...process.env, HOME: fakeHome, LEDGER_ROOT: storeRoot },
+      env: { ...process.env, HOME: fakeHome, USERPROFILE: fakeHome, LEDGER_ROOT: storeRoot },
       encoding: 'utf8',
     });
     return result;

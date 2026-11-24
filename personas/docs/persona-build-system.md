@@ -62,7 +62,7 @@ personas/
 │   ├── vs-code/                      # ← Generated output (never edit)
 │   ├── claude-code/                  # ← Generated output (never edit)
 │   └── deep-agents/                  # ← Generated output (never edit)
-└── name-mapping.json                 # Generated: agent name registry for MCP server
+└── name-mapping.json                 # Generated, gitignored: agent name registry, loaded lazily/per-call by the MCP server
 ```
 
 **Rule:** Never edit files in `vs-code/`, `claude-code/`, or `deep-agents/`. All changes go into the `src/` directory. Generated files carry a `<!-- AUTO-GENERATED — do not edit. -->` header.
@@ -834,7 +834,7 @@ All plugins under `personas/plugins/` must use **CommonJS** (`module.exports` / 
 
 ## Name-Mapping Generation
 
-After every real build (skipped on `--check` runs), `scripts/build-personas.js` generates `personas/name-mapping.json`. This file is the canonical agent name registry consumed by the MCP server at startup.
+After every real build (skipped on `--check` runs), `scripts/build-personas.js` generates `personas/name-mapping.json`. This file is the canonical agent name registry; it is gitignored, not Git-tracked (its model fields come from each user's gitignored model registry files), and a missing or stale copy is a routine pre-build state, not a diff to review. The MCP server consumes it lazily: `mcp-server/src/utils/name-mapping.ts`'s `getAgentNames()` reads it per call (not at server startup), checks its `mtimeMs` to reload after a rebuild without a process restart, and returns `{}` — never throwing — when the file is absent, unreadable, malformed JSON, or not a JSON array.
 
 ### What It Contains
 
@@ -854,7 +854,7 @@ Each entry covers one persona across all three suites:
 | `claude_code` | All | `{ file_name, agent_name }` for the Claude Code target |
 | `deep_agents` | All | `{ file_name, agent_name }` for the Deep Agents target |
 
-The MCP server's `AGENT_NAMES` constant filters this array to ledger-only entries (`suite === "ledger"` or absent) before keying by role name.
+The MCP server's `getAgentNames()` (`mcp-server/src/utils/name-mapping.ts`) filters this array to ledger-only entries (`suite === "ledger"` or absent) before keying by role name.
 
 ### Role Derivation for Non-Ledger Suites
 

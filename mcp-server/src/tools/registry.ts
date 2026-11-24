@@ -11,6 +11,7 @@ import * as pingTools from './ping.js';
 import * as knowledgeTools from './knowledge.js';
 import * as repositoryContextTools from './repository-context.js';
 import * as standaloneImportTools from './standalone-import.js';
+import * as errorCodesTools from './error-codes.js';
 
 /**
  * A tool module is any module exporting a `register(server: McpServer): void`
@@ -48,6 +49,7 @@ export const TOOL_MODULES: readonly ToolModule[] = Object.freeze([
   { id: 'knowledge', register: knowledgeTools.register },
   { id: 'repository-context', register: repositoryContextTools.register },
   { id: 'standalone-import', register: standaloneImportTools.register },
+  { id: 'error-codes', register: errorCodesTools.register },
 ]);
 
 /**

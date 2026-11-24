@@ -409,7 +409,7 @@ The `agent` field is required because the server checks which persona is attempt
 }) => Promise<MCPResult>
 ```
 
-**PM-only tool.** Replaces a work package's entire `active_pipeline_stages` list in place, under seven ordered guards (the first six reject; the seventh is a companion mutation). See [Workflow Specification §12.3c](../workflow-specification/operations.md#123c-updatepipelinestages) and [§21.75](../workflow-specification/edge-cases.md#2175-mid-flight-pipeline-stage-adjustment) for the full guard rationale and the reopen-then-restage recovery sequence; see [Flow R](data-flows.md#flow-r-mid-flight-pipeline-stage-adjustment) for the data-flow diagram.
+**PM-only tool.** Replaces a work package's entire `active_pipeline_stages` list in place, under seven ordered guards (the first six reject; the seventh is a companion mutation). See [Workflow Specification §12.3c](../workflow-specification/operations.md#123c-updatepipelinestages) and [§21.75](../workflow-specification/edge-cases.md#2175-mid-flight-pipeline-stage-adjustment) for the full guard rationale and the reopen-then-restage recovery sequence; see [Flow U](data-flows.md#flow-r-mid-flight-pipeline-stage-adjustment) for the data-flow diagram.
 
 - **Guards, in evaluation order:**
   1. `agent_role` must be `"Project Manager"` — rejected via `requirePmRole` before any disk I/O.
@@ -666,9 +666,9 @@ interface HandoffStatusPayload {
   auto_handoff?: {
     agent_name: string;      // The agent display name (e.g. "6 - Documentation v3.5.2")
     agent_id?: string;       // VS Code routing id (e.g. "ledger-6-docs") — omitted when absent from registry
-    cc_agent_name: string;   // Claude Code agent name slug (e.g. "6-documentation") from AGENT_NAMES
-    vs_agent_name: string;   // VS Code agent display name (e.g. "6 - Documentation v3.6.1") from AGENT_NAMES
-    da_agent_name: string;   // Deep Agents agent name slug (e.g. "6-documentation") from AGENT_NAMES
+    cc_agent_name?: string;  // Claude Code agent name slug (e.g. "6-documentation") from getAgentNames(); omitted when personas/name-mapping.json is absent/malformed or has no entry for this role
+    vs_agent_name?: string;  // VS Code agent display name (e.g. "6 - Documentation v3.6.1") from getAgentNames(); omitted under the same conditions
+    da_agent_name?: string;  // Deep Agents agent name slug (e.g. "6-documentation") from getAgentNames(); omitted under the same conditions
     prompt: string;          // Prompt to pass to the next agent; prefixed with "@{agent_id}\n" when agent_id is present
   };
 }
@@ -710,6 +710,73 @@ Lightweight health check — verifies MCP server reachability and detects stale 
 **Stale detection:** Compares `SERVER_VERSION` (captured at module load / process startup) against `readPackageVersion()` (re-reads `package.json` from disk on each call). If they differ, the dist was rebuilt but the process was not restarted. When `readPackageVersion()` throws (e.g., `package.json` momentarily absent during a rebuild), `stale` is `null` and `stale_detail` explains the I/O failure — the error is never propagated as an opaque MCP error.
 
 **Implementation:** `src/tools/ping.ts` — registered via the `ping` entry in `TOOL_MODULES` (`src/tools/registry.ts`), invoked by `registerAllTools(server)` in `src/index.ts`.
+
+---
+
+### Error Code Tools
+
+Expose the pluggable error-code allocator (`src/error-codes/allocator.ts`) and its temporary-code fallback log (`src/error-codes/temporary-codes.ts`) to agents. Both tools are user-level — scoped to `~/.ai-insights/error-codes/`, not to a ledger plan folder — so neither accepts `project_path`. The active provider is configured by the user in the GUI's Error Codes tab, never by an agent call.
+
+#### `ledger_generate_error_code`
+
+```typescript
+(args: { cwd_path?: string; context?: string; temporary?: boolean }) => Promise<MCPResult>
+```
+
+Allocates a new error-code base number through the configured provider. Never throws for a provider, network, or configuration failure — every one of those falls back to a temporary code instead (see `fallback_reason` below). `cwd_path` is passed through to repository resolution (`src/error-codes/project-info.ts`) and matters whenever the active provider scopes by repository.
+
+**Response shape** (`ErrorCodeResult`, `src/error-codes/allocator.ts`):
+
+```typescript
+{
+  code: string;                // The allocated (or temporary) base number, as digits
+  temporary: boolean;          // true when code is a placeholder, not a real provider-issued base
+  provider: string | null;     // The provider id that produced code, or null for a pre-provider temporary code
+  fallback_reason?: 'throttled' | 'misconfigured' | 'unavailable' | 'rejected' | 'invalid_response' | 'failed' | 'requested';
+  detail?: string;             // Redacted free-text detail; absent when fallback_reason says enough
+  waited_ms?: number;          // Present only when a throttled retry occurred
+  repository: RepositoryInfo | null;
+  first_component_code: string; // code + "01" — the first component code ready to use
+  message: string;
+  instruction: string;
+  warning?: string;            // A non-fatal problem to report to the user, e.g. a corrupt temporary-code log that was recovered
+}
+```
+
+**Temporary-code format:** `{temporary_prefix}` (`"777"` by default, configurable; 1–6 digits, no leading zero — `TEMPORARY_PREFIX_PATTERN` in `config-store.ts`) followed by six zero-padded digits counting up from `1` (e.g. `777000001`). `{prefix}000000` (e.g. `777000000`) is reserved as the "MCP unavailable" placeholder used elsewhere in the workflow and is never issued here. A real, provider-issued `code` has whatever shape the active provider returns.
+
+**Component-code convention:** treat `code` as a base; append a two-digit, zero-padded component number in introduction order (`{base}01`, `{base}02`, …). `first_component_code` already supplies `{base}01`.
+
+**Error handling:** an MCP error (`isError: true`) is returned only when the temporary-code store itself fails (an unreadable log, disk full, lock timeout, counter exhausted) — never for a provider failure, which falls back instead. A corrupt but readable temporary-code log does not fail the call: it is recovered (a copy is kept, numbering continues above every counter still visible) and the recovery is reported in `warning`. A corrupt `file`-provider counter file is a provider failure (`failed`), so it falls back to a temporary code with the counter-file detail rather than restarting the sequence.
+
+**Implementation:** `src/tools/error-codes.ts`, wiring `allocateErrorCode` with real dependencies: the live provider registry (`src/error-codes/provider-registry.ts`), `loadErrorCodeConfig` (`src/error-codes/config-store.ts`), `resolveRepositoryInfo` (`src/error-codes/project-info.ts`), a real `setTimeout`-backed sleep, and `Date.now()`.
+
+#### `ledger_list_temporary_error_codes`
+
+```typescript
+(args: { filter?: string }) => Promise<MCPResult>
+```
+
+Lists every temporary code logged by `ledger_generate_error_code`'s fallback path, so an agent can find and replace placeholder codes once the configured provider is working again. `filter`, when supplied, matches entries whose `context` or `repository` contains it as a (case-sensitive) substring.
+
+**Response shape:**
+
+```typescript
+{
+  entries: Array<{
+    code: string;
+    issued_at: string;             // ISO timestamp
+    provider: string | null;
+    fallback_reason: string | null;
+    detail: string | null;         // Already redacted
+    repository: string | null;     // folder_name at issuance
+    context: string | null;
+  }>;
+  warning?: string;                // Present only when the log is corrupt; `entries` is then the recoverable subset
+}
+```
+
+**Implementation:** `src/tools/error-codes.ts`, delegating to `listTemporaryCodes` (`src/error-codes/temporary-codes.ts`) against `resolveErrorCodesDir()` (`src/storage/store-registry.ts`).
 
 ---
 
@@ -2205,10 +2272,36 @@ type DetectProjectResult =
 ### `atomicWriteJson()`
 
 ```typescript
-function atomicWriteJson(filePath: string, data: unknown): Promise<void>;
+interface AtomicWriteJsonOptions {
+  mode?: number;   // POSIX file mode, e.g. 0o600; a documented no-op on Windows
+}
+
+function atomicWriteJson(
+  filePath: string,
+  data: unknown,
+  options?: AtomicWriteJsonOptions
+): Promise<void>;
 ```
 
 Writes JSON data to a file atomically using the write-to-temp-then-rename pattern. Ensures directory exists, pretty-prints JSON with 2-space indentation and trailing newline.
+
+`options.mode`, when supplied, is passed directly to `fs.writeFile`'s own `mode` option at temp-file creation time (not applied via a separate `fs.chmod` call afterward), so the temp file is never briefly world-readable at default permissions between the write and the rename — the OS applies the mode atomically via the underlying `open()` flags. On Windows, the `mode` bits passed to `fs.writeFile` only toggle the read-only attribute, so this is a documented no-op there — callers that need a restrictive mode (e.g. the error-code allocator's `config.json`, which holds provider secrets, written with `{ mode: 0o600 }`) get it on POSIX and silently get the platform default elsewhere.
+
+---
+
+### `readJsonStateFile()` / `keepCorruptCopy()` — `src/storage/json-state-file.ts`
+
+```typescript
+type JsonStateRead =
+  | { status: 'missing' }
+  | { status: 'parsed'; raw: string; value: unknown }
+  | { status: 'unparsable'; raw: string; error: string };
+
+function readJsonStateFile(path: string): Promise<JsonStateRead>;
+function keepCorruptCopy(path: string, now?: Date): Promise<string>;  // returns the copy's base name
+```
+
+The shared read primitive of the error-code state files (the `file` provider's counter file, `temporary-codes.json`, `config.json`). It enforces *a missing file is not a broken file*: `ENOENT` alone is `missing`; a read file is `parsed` or `unparsable` (schema validation stays with the caller); every other I/O error is rethrown unchanged with its `code`. Each store keeps its own corruption policy — see "Error-Code State Files Distinguish Missing From Broken" in `constraints.md`. `keepCorruptCopy` copies (never renames) the file to `{name}.corrupt-{YYYYMMDDTHHMMSSZ}{ext}` in the same directory with an exclusive copy (an existing file is never overwritten; a collision appends `-2`, `-3`, …); the stamp has no `:`, so the name is valid on Windows. The caller replaces the original with `atomicWriteJson`, so the path is never absent.
 
 ---
 
@@ -2216,9 +2309,16 @@ Writes JSON data to a file atomically using the write-to-temp-then-rename patter
 
 ```typescript
 function withLock<T>(storageDir: string, fn: () => Promise<T>): Promise<T>;
+
+const DEFAULT_LOCK_OPTIONS: Readonly<{ stale: 10000; retries: Readonly<{ retries: 50; minTimeout: 200; maxTimeout: 1000 }> }>; // deep-frozen
+
+function __setLockRetryForTesting(options: { minTimeout: number; maxTimeout: number }): void;  // @internal, test-only
+function __resetLockOptionsForTesting(): void;                                                  // @internal, test-only
 ```
 
-Acquires a file lock on the project's centralized storage directory, executes the callback, and releases the lock in a `finally` block. Lock file created at `{storageDir}/.lock`.
+Acquires a file lock on the project's centralized storage directory, executes the callback, and releases the lock in a `finally` block. Lock file created at `{storageDir}/.lock`. `withLock` reads its retry policy from a module-level `activeLockOptions`, initialised from `DEFAULT_LOCK_OPTIONS` and always replaced wholesale (never mutated in place) so the frozen default stays frozen.
+
+**Test-only retry seam:** `__setLockRetryForTesting({ minTimeout, maxTimeout })` swaps `activeLockOptions` to a faster policy — it derives `retries = Math.ceil(DEFAULT_LOCK_OPTIONS.stale / minTimeout)` so the retry window never drops below the 10s stale timeout, and rejects `minTimeout < 1` or `maxTimeout < minTimeout`. `__resetLockOptionsForTesting()` restores the exact defaults. Both are `@internal`/test-only; no production code path calls either. See "Slow Lock-Contention Tests Use the `withLock` Fast-Lock Test Seam" in `constraints-testing.md` for the adoption pattern used by the error-code concurrency tests.
 
 ---
 
@@ -2575,6 +2675,39 @@ function expandStorePath(pathStr: string): string;
  */
 function resolveGuiConfigPath(storeConfig: StoresConfig | null, ledgerRoot: string): string;
 
+/**
+ * Returns the absolute path of the error-code allocator's user-level state
+ * directory: ~/.ai-insights/error-codes/
+ *
+ * Holds config.json (active provider, timeouts, retry policy, per-provider
+ * settings), temporary-codes.json (the logged fallback-code history), and
+ * per-provider data/{provider-id}/ directories.
+ */
+function resolveErrorCodesDir(): string;
+
+/**
+ * Returns the absolute path of the directory scanned for third-party
+ * error-code provider plugins: ~/.ai-insights/plugins/error-codes/
+ *
+ * Each entry is either a *.mjs/*.js file whose default export is an
+ * ErrorCodeProvider, or a folder carrying its own package.json and
+ * dependencies (see the Error-Code Provider Contract section below).
+ */
+function resolveErrorCodePluginDir(): string;
+
+/**
+ * Returns the absolute path of a single error-code provider's data
+ * directory: join(resolveErrorCodesDir(), 'data', providerId).
+ *
+ * The single source of this path (WP-004, PR#64 rework) — both the
+ * allocator (src/error-codes/allocator.ts) and the GUI's provider
+ * Test-connection route (gui/api-error-codes.ts) call this helper rather
+ * than building the path themselves, which previously let a forward-slash
+ * template-string copy in the allocator diverge from the GUI's own
+ * path.join-based copy on Windows.
+ */
+function resolveErrorCodeProviderDataDir(providerId: string): string;
+
 // ── I/O ────────────────────────────────────────────────────────────────────
 
 /**
@@ -2883,6 +3016,329 @@ One-shot startup migration: scans `ledgerRoot` for depth-1 directories that cont
 **Startup wiring:** Called from `src/index.ts` after `mkdirSync(ledgerRoot)` and before `readConfigFromDisk()`, wrapped in `try/catch` to prevent fatal startup failures.
 
 **`withLock` constraint:** Never calls `withLock(ledgerRoot)`. Race safety relies on the sentinel file and startup sequencing (no tool-call handlers are reachable during migration).
+
+---
+
+## Error-Code Provider Contract
+
+`src/error-codes/` holds the pluggable error-code allocator introduced for `ledger_generate_error_code`. This section is the single documentation home for every module under `src/error-codes/` as each lands, built-in providers (`providers/`) included; the MCP tools that call `allocateErrorCode()` are documented in their own WPs' manifest updates.
+
+### `provider-api.ts`
+
+The provider contract itself — pure types and constants, no runtime logic (so it carries no dedicated unit test; `provider-validation.test.ts` and the built-in provider tests exercise it indirectly). This is the only module a provider depends on, conceptually: plugins are plain ESM and import nothing from the server, and the types below are the documentation handed to plugin authors.
+
+```typescript
+const PROVIDER_API_VERSION = 1;
+const SUPPORTED_PROVIDER_API_VERSIONS: readonly number[]; // = [1]
+
+interface ErrorCodeProvider {
+  apiVersion: 1;
+  id: string;                 // /^[a-z][a-z0-9-]{1,47}$/, unique
+  label: string;
+  description?: string;
+  settings: SettingField[];   // declarative; drives validation, the GUI form, and secret handling
+  allocate(request: AllocationRequest, ctx: ProviderContext): Promise<AllocationOutcome>;
+  // Optional hooks. Presence IS the capability — no separate capability flag.
+  peek?(request: AllocationRequest, ctx: ProviderContext): Promise<AllocationOutcome>;
+  test?(ctx: ProviderContext): Promise<TestOutcome>;  // core falls back to peek when absent
+}
+
+type SettingField =
+  | { key: string; label: string; type: 'string' | 'url' | 'path'; required?: boolean; default?: string; description?: string; placeholder?: string }
+  | { key: string; label: string; type: 'secret'; required?: boolean; description?: string }
+  | { key: string; label: string; type: 'integer'; required?: boolean; default?: number; min?: number; max?: number; description?: string }
+  | { key: string; label: string; type: 'boolean'; default?: boolean; description?: string }
+  | { key: string; label: string; type: 'select'; options: { value: string; label: string }[]; default?: string; description?: string };
+
+interface AllocationRequest {
+  request_id: string;             // uuid, for provider-side logging/idempotency only
+  cwd_path: string | null;
+  repository: RepositoryInfo | null;
+  context: string | null;
+}
+
+// root_path/folder_name identify the MAIN repository root — every linked
+// worktree of one repository resolves to the same values.
+interface RepositoryInfo { root_path: string; folder_name: string; package_name: string | null; }
+
+interface ProviderContext {
+  settings: Readonly<Record<string, unknown>>;  // validated against the provider's `settings`, secrets included
+  signal: AbortSignal;             // core-owned allocation timeout
+  data_dir: string;                // ~/.ai-insights/error-codes/data/{provider-id}/, created on demand
+  log: { info(msg: string): void; warn(msg: string): void };  // stderr-only, secrets redacted
+}
+
+type AllocationOutcome =
+  | { ok: true; value: number }
+  | { ok: false; reason: FailureReason; ambiguous?: boolean; retry_after_ms?: number; detail?: string };
+
+type FailureReason = 'throttled' | 'misconfigured' | 'unavailable' | 'rejected' | 'invalid_response' | 'failed';
+type TestOutcome = { ok: true; detail?: string; value?: number } | { ok: false; reason: FailureReason; detail?: string };
+```
+
+**Stability rules** (`apiVersion: 1`), restated from the module's own JSDoc — read it there for the authoritative version:
+- Every change within `apiVersion: 1` is additive: new optional request fields, context members, provider hooks, and setting-field types.
+- An optional hook is detected by its presence (`typeof provider.peek === 'function'`) — no `capabilities` flag, no `ctx.api_version`.
+- Providers must ignore unknown request/context fields. The core treats unknown outcome `reason`s as `failed` and ignores unknown provider properties.
+- A breaking change requires `apiVersion: 2`; `SUPPORTED_PROVIDER_API_VERSIONS` lists what the core currently accepts.
+
+### `provider-validation.ts`
+
+```typescript
+interface ProviderValidationSuccess { ok: true; provider: ErrorCodeProvider; }
+interface ProviderValidationFailure { ok: false; errors: string[]; }
+type ProviderValidationResult = ProviderValidationSuccess | ProviderValidationFailure;
+
+function validateProvider(candidate: unknown): ProviderValidationResult;
+```
+
+A Zod-backed runtime check of a candidate provider object — used uniformly for built-in and plugin-loaded providers. Never throws. Rejects: an unsupported `apiVersion`; an `id` that fails the pattern; a missing/empty `label`; a missing `allocate`; a malformed `settings` array (unknown `type`, missing `options` for `select`, an `integer`'s `min` greater than its `max`, or a duplicate `key` across entries — the one rule a per-element schema cannot express, checked via `z.discriminatedUnion(...).superRefine(...)`); and a `peek`/`test` that is present but not a function. On success, returns the original candidate object, typed as `ErrorCodeProvider`.
+
+### `settings-schema.ts`
+
+```typescript
+function buildSettingsSchema(fields: readonly SettingField[]): z.ZodObject<Record<string, z.ZodTypeAny>>;
+
+function toPublicSettings(
+  fields: readonly SettingField[],
+  values: Readonly<Record<string, unknown>>
+): Record<string, unknown>;
+
+function mergeSettingsUpdate(
+  fields: readonly SettingField[],
+  stored: Readonly<Record<string, unknown>>,
+  incoming: Readonly<Record<string, unknown>>,
+  clearKeys?: readonly string[]
+): Record<string, unknown>;
+
+interface MergeSettingsForTestResult {
+  settings: Record<string, unknown>;
+  secrets_merged: boolean;
+}
+function mergeSettingsForTest(
+  fields: readonly SettingField[],
+  stored: Readonly<Record<string, unknown>>,
+  incoming: Readonly<Record<string, unknown>>
+): MergeSettingsForTestResult;
+
+function collectSecrets(
+  fields: readonly SettingField[],
+  values: Readonly<Record<string, unknown>>
+): string[];
+```
+
+One descriptor array (`SettingField[]`) drives every function here:
+
+- **`buildSettingsSchema`** — `integer` respects `min`/`max`; `select` must be one of its declared `options`; a field's `default` is applied by Zod when the value is absent. The `url` type enforces a scheme rule in the core (not behind a per-descriptor flag, so a plugin author cannot weaken it): `https://` is always accepted; `http://` is accepted **only** for a loopback host (`localhost`, `127.0.0.1`, `[::1]` — `URL#hostname` keeps the brackets on the IPv6 literal). Every other scheme, and every other `http://` host, is rejected.
+- **`toPublicSettings`** — renders every `secret` field as `{ set: boolean } ` (never the raw value); every other field passes through unchanged. Feeds the GUI's `GET /api/error-codes/config` response.
+- **`mergeSettingsUpdate`** — the save-time merge. A secret field left absent or empty in `incoming` keeps the stored value, so the GUI never has to resend a password to save an unrelated field; a key listed in `clearKeys` is forced to `''` regardless of `incoming`, which is the only way to clear a stored secret. Non-secret fields apply the incoming value when the key is present in `incoming`, otherwise keep the stored one.
+- **`mergeSettingsForTest`** — the fail-closed merge behind the GUI's "Test connection" flow. Stored secrets are merged into `incoming` **only when every non-secret field** — of any type, not only `url` — **equals its stored value**, after each field's `default` is applied to both sides via an internal, lenient `applyDefaults` helper (never throws, never enforces `required`, since this is a pure comparison over possibly-partial objects). Any other difference means the result carries the incoming secrets only. Pure and synchronous: the rule is unit-tested without ever making an HTTP call. Value comparison uses `===`, which is correct because every current `SettingField` value type is a primitive (string, number, boolean) — a future structured setting type would need a deep-equal here instead.
+- **`collectSecrets`** — returns every non-empty secret value present in `values`, feeding `redact()`/`createRedactingLogger()` (see below). Kept here, alongside the descriptors it reads, rather than in `redact.ts`.
+
+### `redact.ts`
+
+```typescript
+function redact(text: string, secrets: readonly string[]): string;
+
+interface RedactingLogger { info(msg: string): void; warn(msg: string): void; }
+function createRedactingLogger(prefix: string, secrets: readonly string[]): RedactingLogger;
+```
+
+The single owner of secret redaction for the error-code allocator — plain functions, no state. Lives in its own module (not inside `settings-schema.ts`) because the plugin loader and provider registry need to redact log/error text without needing Zod or the descriptor logic.
+
+- **`redact`** — replaces every occurrence of each non-empty secret in `text` with `[REDACTED]`. Secrets are matched **literally**: any regex metacharacters they contain are escaped first. Secrets are replaced **longest-first**, so a secret that is a substring of another is never partially exposed by the shorter match running first. Empty or whitespace-only secrets are ignored, so an unset settings field cannot blank out unrelated text.
+- **`createRedactingLogger`** — returns the `{ info, warn }` logger handed to providers as `ctx.log`, and used internally by the allocator, registry and loader. Writes `[{prefix}] {message}` to **stderr only** (never stdout, keeping the MCP JSON-RPC stream on stdout clean), passing every message through `redact` first.
+
+### `config-store.ts`
+
+```typescript
+const TEMPORARY_PREFIX_PATTERN: RegExp;        // /^[1-9][0-9]{0,5}$/ — 1–6 digits, no leading zero
+const DEFAULT_TEMPORARY_PREFIX: string;        // '777'
+const TemporaryPrefixSchema: z.ZodString;      // the pattern above, with the user-facing message; shared by the config schema and the GUI's PUT body schema
+const ErrorCodeConfigSchema: z.ZodType<ErrorCodeConfig>; // version, active_provider, temporary_prefix, timeout_ms, retry: { default_wait_ms, max_wait_ms }, providers: Record<string, Record<string, unknown>>
+type ErrorCodeConfig = z.infer<typeof ErrorCodeConfigSchema>;
+
+function readErrorCodeConfig(): Promise<{ config: ErrorCodeConfig; warning?: string }>;
+function loadErrorCodeConfig(): Promise<ErrorCodeConfig>;
+function updateErrorCodeConfig(mutator: (current: ErrorCodeConfig) => ErrorCodeConfig): Promise<ErrorCodeConfig>;
+```
+
+Owns `~/.ai-insights/error-codes/config.json`.
+
+- **`readErrorCodeConfig()`** — the shared classification read, built on an internal `readConfigState()` helper (`missing | ok | salvaged | corrupt | unreadable`); the one read path both `loadErrorCodeConfig()` and the GUI's config route use, so they can never disagree about what counts as usable. Never throws: a missing file yields the documented defaults (`active_provider: 'file'`, `temporary_prefix: '777'`) with no `warning`; a valid file also has no `warning`; a salvaged file (some invalid fields) returns the defaults for just those fields — every other field, `providers` and its stored secrets included, is kept — plus a `warning` naming the invalid field paths only, never a value; a corrupt or unreadable file returns the defaults plus a `warning` carrying the same fixed, already-sanitized classification reason `readConfigState()` produced, never the raw JSON-parser message (which would quote file content holding secrets).
+- **`loadErrorCodeConfig()`** — a thin wrapper over `readErrorCodeConfig()`: re-reads the file on every call (no cache, no watcher, so the MCP server process and the GUI server process always observe the latest saved settings without coordinating invalidation), writes any `warning` to stderr as `[error-codes] {warning}`, and returns just the `config`. Its signature, return value and stderr output are unchanged from before `readErrorCodeConfig()` existed, for every config state.
+- **GUI surfacing** — `handleGetErrorCodeConfig` (`gui/api-error-codes.ts`) calls `readErrorCodeConfig()` directly instead, so the GUI's Error Codes tab can surface the same `warning` as a banner instead of only to a stderr stream the GET route's caller never sees. See the GUI manifest's `ErrorCodeConfigResponse.warning` and `config-error-codes.js`'s `ecConfigWarning`.
+- **Validation asymmetry** — the strict `ErrorCodeConfigSchema` is used on write; reads use a tolerant per-field salvage, so one bad field can no longer wipe the rest.
+- **`providers`** — a free-form `{ [provider-id]: settings }` bag whose values this schema does not validate (a provider's settings shape is runtime-defined, see `settings-schema.ts`); this is also why settings for a currently-uninstalled provider round-trip untouched.
+- **`updateErrorCodeConfig(mutator)`** — the only write path: a read-modify-write under `withLock(resolveErrorCodesDir(), …)` that re-validates the mutator's result before persisting it with `atomicWriteJson(..., { mode: 0o600 })`, so concurrent callers never lose an update and a mutator cannot silently write an invalid shape. It also never overwrites what it could not read: an **unreadable** `config.json` (e.g. `EACCES`) makes it throw without writing; an **unparsable** one is first copied byte-for-byte to `config.corrupt-{stamp}.json` (via `keepCorruptCopy`) and then replaced in one atomic rename, so a concurrent unlocked `loadErrorCodeConfig` never observes the file missing.
+
+### `project-info.ts`
+
+```typescript
+function resolveRepositoryInfo(cwdPath: string): Promise<RepositoryInfo | null>;
+```
+
+Resolves the MAIN repository root for an arbitrary working directory with no `git` subprocess — walks upward from `cwdPath` to the first `.git` entry, following git's own repository-layout convention. A `.git` directory means `cwdPath`'s ancestor is already the main checkout. A `.git` file (a linked worktree or a submodule) is read for its `gitdir:` line and, when that git directory holds a `commondir` file, resolved further to the shared main checkout — so every linked worktree of one repository yields the same `root_path`/`folder_name`, which matters for a provider scoping its sequence by repository (the `file` provider's `scope: 'repository'`). A submodule (no `commondir`) or any read failure along the way falls back to the walked directory rather than throwing. Returns `null` outside any repository. `package_name` comes from the existing `readProjectName()` (`utils/read-project-name.ts`), reused as-is.
+
+### `temporary-codes.ts`
+
+```typescript
+const TemporaryCodeEntrySchema: z.ZodType<TemporaryCodeEntry>; // code, issued_at, provider, fallback_reason, detail, repository, context — all nullable except code/issued_at
+type TemporaryCodeEntry = z.infer<typeof TemporaryCodeEntrySchema>;
+type TemporaryCodeEntryInput = Omit<TemporaryCodeEntry, 'code' | 'issued_at'>;
+
+interface IssuedTemporaryCode { code: string; warning?: string; }                 // warning: the log was corrupt and was recovered
+interface TemporaryCodesListing { entries: TemporaryCodeEntry[]; warning?: string; } // warning: the log is corrupt; entries are the recoverable ones
+
+function issueTemporaryCode(dir: string, prefix: string, entry: TemporaryCodeEntryInput): Promise<IssuedTemporaryCode>;
+function listTemporaryCodes(dir: string, filter?: string): Promise<TemporaryCodesListing>;
+```
+
+Owns `~/.ai-insights/error-codes/temporary-codes.json`, entirely core-side — no provider ever sees or influences this log, which is what makes the fallback guarantee unconditional.
+
+- **`issueTemporaryCode`** — runs its whole read-modify-write under `withLock(dir, …)`; the returned code is `prefix + String(n).padStart(6, '0')` with `n` starting at `1` (`{prefix}000000` is reserved as the "tool unavailable" placeholder and is never issued by this module); the persisted file tracks an explicit `next_counter` field — rather than re-deriving "next" from `entries.length` — so a manually edited or truncated log can never reissue a previously-used code. Once `n` would exceed `999999` the counter is exhausted and the function throws instead of wrapping around.
+- **`listTemporaryCodes`** — filters by a case-sensitive substring match against `context` or `repository` (a `null` field never matches a non-empty filter); an absent or empty `filter` returns every entry.
+- **Corruption handling** — the log is the last-resort fallback, so a *missing* file is a new empty log and a file that exists but is corrupt (unparsable, a failing entry, or a `next_counter` at or below a code already logged) is **recovered**, never reset: under the lock, `issueTemporaryCode` keeps a byte-identical copy as `temporary-codes.corrupt-{stamp}.json` (`keepCorruptCopy`), retains every valid entry, continues numbering above every counter still visible in the file (a text scan of the raw `"code"` values, so codes written with a non-digit prefix by an earlier version count too), replaces the original in one atomic write, and returns a `warning`. A second caller that met the same corrupt log waits on the lock and re-reads the repaired file, so recovery runs once.
+- **Read-only path** — `listTemporaryCodes` is read-only and unlocked: on a corrupt log it returns the recoverable entries plus a `warning`, and copies and writes nothing.
+- **Unreadable log** — a log that cannot be *read* at all (`EACCES`, `EISDIR`, …) fails closed: `issueTemporaryCode` rejects with `temporary-codes: cannot read {path} ({code})`.
+
+### `plugin-loader.ts`
+
+```typescript
+interface LoadedPlugin { provider: ErrorCodeProvider; path: string; }
+interface PluginLoadError { source: string; message: string; } // message never carries stack trace text
+interface LoadPluginProvidersResult { providers: LoadedPlugin[]; errors: PluginLoadError[]; }
+
+interface LoadPluginProvidersOptions { importTimeoutMs?: number; } // defaults to PLUGIN_IMPORT_TIMEOUT_MS
+const PLUGIN_IMPORT_TIMEOUT_MS = 10_000;
+
+function loadPluginProviders(pluginDir: string, options?: LoadPluginProvidersOptions): Promise<LoadPluginProvidersResult>;
+```
+
+The only place in the server that dynamically imports code discovered at runtime, and it only ever scans one fixed directory: `resolveErrorCodePluginDir()` (`~/.ai-insights/plugins/error-codes/`) — see "Plugins Load Only From the Plugin Directory" (`constraints.md`). Each top-level entry is either a `*.mjs`/`*.js` file (its default export is the provider) or a folder, whose entry module is `package.json`'s `main` field when present, else `index.mjs` — `exports` maps are deliberately not resolved, so a folder with neither is reported as a load error naming the expected entry rather than partially re-implementing Node's resolver. Entries are classified by a private `classifyEntry()` that looks through symbolic links (`stat` follows them): a link to a file or folder loads like its target, reported under the link path, and a dangling link (or link loop) is a load error. Each import is raced against `options.importTimeoutMs` (default `PLUGIN_IMPORT_TIMEOUT_MS`, 10 s, per plugin, unref'd timer cleared in `finally`); a timeout is recorded as `import timed out after {n} ms` and the scan continues (the import itself cannot be cancelled). Modules are imported via `pathToFileURL(path).href` for correctness on Windows as well as POSIX. A syntax error, a thrown error during evaluation, an invalid provider shape, or a plugin `id` clashing with another plugin already loaded from this directory (first-loaded wins by readdir order) is recorded in `errors` and never thrown — one broken plugin never blocks the rest of the scan or server startup. A missing plugin directory yields no providers and no errors (absence is not a failure). This loader knows nothing of built-in providers; a plugin `id` clashing with a built-in is accepted here and resolved by `provider-registry.ts`.
+
+### `provider-registry.ts`
+
+```typescript
+const BUILTIN_PROVIDERS: ErrorCodeProvider[]; // in registration order; built-ins always win an id clash over a plugin
+
+interface ProviderRegistryEntry { provider: ErrorCodeProvider; source: 'builtin' | 'plugin'; path?: string; } // path present only for source: 'plugin'
+interface ProviderLoadError { source: string; message: string; }
+
+function initProviderRegistry(options: { pluginDir: string }): Promise<void>;
+function getProvider(id: string): ErrorCodeProvider | undefined;
+function listProviders(): ProviderRegistryEntry[];
+function listProviderLoadErrors(): ProviderLoadError[];
+```
+
+Merges `BUILTIN_PROVIDERS` with every provider `loadPluginProviders()` discovers under `options.pluginDir`, into process-local module state (`registry`/`errors`, a `Map` keyed by provider `id` — not plain-object property access, so an `id` cannot cause prototype pollution). A plugin `id` clashing with a built-in is rejected and recorded as a load error while the built-in keeps working; a plugin-vs-plugin clash is already resolved inside `loadPluginProviders` and never reaches this function. `initProviderRegistry` is safe to call more than once per process — each call replaces the whole registry and error list with a freshly built one rather than accumulating, so the MCP server and the GUI server each calling it once at their own startup never produces duplicates. `getProvider`/`listProviders`/`listProviderLoadErrors` are plain synchronous readers over that state.
+
+### `allocator.ts`
+
+```typescript
+interface AllocateErrorCodeInput {
+  cwd_path: string | null;
+  context: string | null;
+  temporary?: boolean;
+}
+
+type FallbackReason = FailureReason | 'requested';
+
+interface ErrorCodeResult {
+  code: string;                       // digits only, real or temporary
+  temporary: boolean;
+  provider: string | null;            // null only for a `requested`/no-provider-resolved temporary code
+  fallback_reason?: FallbackReason;   // absent for a successful, non-temporary allocation
+  detail?: string;                    // always redacted
+  waited_ms?: number;                 // present only after a throttled retry
+  repository: RepositoryInfo | null;
+  first_component_code: string;       // code + '01'
+  message: string;
+  instruction: string;
+  warning?: string;                   // non-fatal problem to report, e.g. a recovered temporary-code log
+}
+
+interface TemporaryCodesDep {
+  issue(prefix: string, entry: TemporaryCodeEntryInput): Promise<IssuedTemporaryCode>;
+}
+
+interface AllocatorDeps {
+  loadConfig(): Promise<ErrorCodeConfig>;
+  getProvider(id: string): ErrorCodeProvider | undefined;
+  resolveRepositoryInfo(cwdPath: string): Promise<RepositoryInfo | null>;
+  temporaryCodes: TemporaryCodesDep;
+  sleep(ms: number): Promise<void>;
+  now(): number;                      // measures the retry backoff for `waited_ms`, never used for policy
+}
+
+function allocateErrorCode(input: AllocateErrorCodeInput, deps: AllocatorDeps): Promise<ErrorCodeResult>;
+```
+
+The single policy pipeline behind `ledger_generate_error_code`: load config, resolve the repository, call the active provider, validate its outcome, retry once on throttling, and fall back to a temporary code on every other failure. See "Policy Lives in the Allocator, Not in Providers" (`constraints.md`) for why every one of those decisions lives here and nowhere in a provider. `ErrorCodeResult` is exported from this module rather than a separate `types.ts`, matching the config schema living in `config-store.ts` and the temporary-entry schema living in `temporary-codes.ts`.
+
+`deps` is fully injected, so the allocator's own unit tests (`tests/error-codes/allocator.test.ts`) exercise no real file I/O, network call or timer:
+- `temporaryCodes` is a narrow façade over `temporary-codes.ts` — the allocator only ever issues a code through it, never lists the log.
+- `now()` is called immediately before and after the single retry `sleep()`, purely to report the actually-elapsed `waited_ms` — it plays no part in deciding whether to retry or how long to wait.
+- `resolveRepositoryInfo` is called only when `input.cwd_path` is non-null.
+
+- **Never thrown** — a missing/failed-to-load provider, a provider whose stored settings fail `buildSettingsSchema(...).safeParse(...)` validation, a provider that throws, an aborted `allocate` call, or a non-positive/non-safe-integer returned value all fall back to a temporary code instead (`misconfigured`, `failed`, `unavailable`, or `invalid_response` respectively). The only way this function rejects is a failure in the temporary-code store itself (e.g. its counter exhausted), which the MCP tool that calls it turns into an MCP error. An outcome whose `reason` is not one of the six documented `FailureReason` values is normalised to `failed` before the fallback.
+- **Retry** — on `{ ok: false, reason: 'throttled', ambiguous: false|undefined }`, the allocator waits once for `min(retry_after_ms ?? retry.default_wait_ms, retry.max_wait_ms)` and calls `allocate` exactly one more time. A `throttled` outcome marked `ambiguous: true`, and every outcome of any other failing reason, is never retried — it falls straight to a temporary code. A second `throttled` response (after the one retry) also falls back.
+- **Redaction** — a provider's stored settings are validated once per call and their secret values (`collectSecrets`) are reused for both `createRedactingLogger` (handed to the provider as `ctx.log`) and `redact()` on the final `detail` text — so a secret echoed back in a failure's `detail`, or logged by the provider via `ctx.log`, never reaches the caller or stderr unredacted.
+- **`data_dir`** — built via a direct import of `resolveErrorCodeProviderDataDir(provider.id)` (`storage/store-registry.ts`), not an injected dependency, since building the path performs no I/O; only `loadConfig`'s own implementation touches the filesystem. This is the same helper the GUI's provider Test-connection route calls, so both paths always agree.
+
+### `providers/file-provider.ts`
+
+```typescript
+interface FileProviderSettings {
+  scope: 'global' | 'repository';
+  counter_file: string;  // '' means {ctx.data_dir}/counters.json; may contain a {repo} placeholder
+  counter_name: string;  // sequence key used in 'global' scope only
+  start_value: number;
+}
+
+const fileProvider: ErrorCodeProvider; // id 'file', apiVersion 1; allocate + peek, no test()
+```
+
+The zero-setup default provider (`active_provider: 'file'` is the documented config default — see `config-store.ts` above). Keeps one monotonic integer per sequence key inside a JSON counter file (`{ counters: Record<string, number> }`, every value a safe integer >= 0). The file is read **strictly**: only a *missing* file starts a new sequence at `start_value`. A file that exists but cannot be read, parsed or validated makes `allocate` and `peek` return `{ ok: false, reason: 'failed', ambiguous: false, detail: 'counter file {path} … ; no code was issued from it — repair or remove the file' }` and the file is left untouched — restarting the sequence would reissue codes already embedded in source. The allocator turns `failed` into a temporary code, so allocation still succeeds. Counters are held in a `Map` (hand-validated, read with `Object.entries`, written with `Object.fromEntries`), so every string is a valid key — `__proto__`, `constructor`, `toString` included — and no key can resolve to an inherited property; there is no reserved-key policy.
+
+- **Counter file resolution** (`resolveCounterLocation`, not exported) — `counter_file === ''` resolves to `{ctx.data_dir}/counters.json`; a `{repo}` placeholder (detected via `.includes('{repo}')`, checked **before** any `repository` access) expands to `repository.root_path` via a global string replace; any other non-empty value is used verbatim and never touches `repository`, even when `repository` is `null`. `scope: 'repository'`, or a `{repo}` placeholder, with no repository resolved both return `{ ok: false, reason: 'misconfigured', detail: 'no repository found for cwd_path' }` — this exact detail string is a documented contract surface, not an incidental message.
+- **Sequence key** — `repository.folder_name` for `scope: 'repository'` (shared by every linked worktree of one repository, since `project-info.ts` normalises worktrees to the same `folder_name`); `counter_name` for `scope: 'global'`.
+- **`allocate`** — runs the whole read-modify-write (the strict read included) under `withLock(ctx.data_dir, …)`, **never** a lock on the counter file's own directory. `ctx.data_dir` is under the user's home directory, so every process of one user (both MCP servers, the GUI, parallel workflow runs) resolves the same one and all of them serialise on a single lock. The `.lock` directory exists only while an allocation holds it (left behind only by a hard kill, then reclaimed as stale after 10 s); locking `data_dir` keeps even that transient entry out of a `{repo}/…` directory. **A counter file shared between different users or machines is not protected by this lock and is not supported.** Writes via `atomicWriteJson`.
+- **`peek`** — read-only; returns the value the *next* `allocate()` call would issue (`current ?? start_value - 1, then +1`), without acquiring the lock or writing anything, so it agrees with `allocate` on what "the current value" means even for a sequence never allocated from. Safe without the lock: `atomicWriteJson` renames a complete temp file into place, so it sees the old or the new file, never a partial one. A corrupt counter file gives the same `failed` outcome as `allocate`.
+- **Settings** (`FILE_PROVIDER_SETTINGS`, inline in the provider object, not a separate exported constant): `scope` (`select`, default `'global'`), `counter_file` (`path`, default `''`), `counter_name` (`string`, default `'default'`), `start_value` (`integer`, default `1`, `min: 1`).
+
+### `providers/errorcode-incrementor-provider.ts`
+
+```typescript
+interface ErrorcodeIncrementorSettings {
+  base_url: string;    // url, required, no default
+  password: string;    // secret, required
+  counter: string;     // string, required
+  response_suffix: string; // default '01'
+  throttle_delay_ms: number; // default 10000
+}
+
+const errorcodeIncrementorProvider: ErrorCodeProvider; // id 'errorcode-incrementor', label "Errorcode Incrementor (HTTP)", apiVersion 1; allocate + peek, no test()
+```
+
+A driver for the user's own self-hosted instance of the public, MIT-licensed Errorcode Incrementor counter service — the host and credentials are private settings, never checked into this repository (`tests/error-codes/no-private-config.test.ts` mechanically enforces this). Uses Node's global `fetch` and the core-supplied `ctx.signal` directly; no HTTP client dependency (see `tech-stack.md`).
+
+- **Request shape** — both `allocate` and `peek` build `GET {base_url}?pw={password}&counter={counter}[&increment=yes]` exclusively via `URL`/`URLSearchParams`, which percent-encodes every value; `allocate` sets `increment=yes`, `peek` *deletes* any `increment` parameter (a saved `base_url` already containing `increment=yes` would otherwise make `peek` — and the GUI's Test connection — consume a code). The provider owns `pw`, `counter` and `increment`: whatever `base_url` carries for them is always overridden. The response body is trimmed, matched against the configured `response_suffix` (stripped from the end), and parsed as a `Number.isSafeInteger` digit string; a non-matching shape maps to `invalid_response` rather than throwing.
+- **Status/error mapping** (`mapStatusToOutcome`) — `400`/`401`/`404` → `misconfigured`; `403` → `throttled` with `retry_after_ms = throttle_delay_ms + 1000`; `500` → `unavailable`, `ambiguous: true`; any other HTTP status → `rejected`; an aborted request (`ctx.signal`) → `unavailable`, `ambiguous: true`; a DNS failure or connection refusal (`err.cause.code` of `ENOTFOUND`/`ECONNREFUSED`/`EAI_AGAIN`, the only signal Node's `fetch` rejection exposes for "never reached a server") → `unavailable`, `ambiguous: false`; any other network error → `unavailable`, `ambiguous: true`.
+- **Secrets** — `password` is never logged or echoed; the provider calls neither `ctx.log` nor `console`, and the allocator's own `redact()`/`createRedactingLogger()` layer (see `allocator.ts` above) additionally guards any `detail` text that reaches the caller.
+- **Settings**: `base_url` (`url`, required, **no default** — the absence of a default is itself part of the no-private-config guarantee), `password` (`secret`, required), `counter` (`string`, required), `response_suffix` (`string`, default `'01'`), `throttle_delay_ms` (`integer`, default `10000`).
+
+### `../../tests/error-codes/provider-contract.ts` — shared provider test helper
+
+```typescript
+function describeProviderContract(
+  name: string,
+  makeProvider: () => ErrorCodeProvider,
+  makeCtx: (overrides?: Partial<ProviderContext>) => ProviderContext
+): void;
+```
+
+A `describe`-block factory (Vitest), not a production module — lives under `tests/`, not `src/`, but documented here because every current and future provider's test file is expected to call it (see "New Error-Code Providers Must Pass `describeProviderContract`" in `constraints-testing.md`). Exercises, against any `ErrorCodeProvider`: well-formed `settings`, a positive-integer `allocate` result, a monotonically increasing sequence across repeated calls, tolerance of unknown `AllocationRequest` fields, and settling (not hanging) when `makeCtx` is given an already-aborted `signal`. `makeProvider` must return a fresh instance per call so one test's state never leaks into another's; `makeCtx` must accept the `Partial<ProviderContext>` override the abort-handling check relies on. Consumed by `file-provider.test.ts` and `errorcode-incrementor-provider.test.ts`.
 
 ---
 
@@ -3273,6 +3729,12 @@ const SAFE_SLUG_REGEX: RegExp; // /^[a-z0-9][a-z0-9-]*$/
 // Current value: '2.4.1'
 const SPEC_VERSION: string;  // e.g. '2.4.1'
 
+// `TargetNames`, `NameMappingEntry` and the `getAgentNames()` loader live in
+// `src/utils/name-mapping.ts`, not `constants.ts` (constants.ts does no file I/O).
+// `personas/name-mapping.json` is a generated, gitignored build artefact — it
+// is not Git-tracked and may legitimately be absent (e.g. before the first
+// persona build on a fresh clone).
+
 // Target-specific file name and agent name for a single IDE/platform.
 // Used as a nested value inside NameMappingEntry.
 interface TargetNames {
@@ -3283,21 +3745,46 @@ interface TargetNames {
 // Full name-mapping entry for one agent role.
 // Shape of each element in personas/name-mapping.json (generated by scripts/build-personas.js).
 interface NameMappingEntry {
-  number: number;             // Display order and numeric prefix (1–9)
+  number: number | null;      // Display order and numeric prefix (1–9) for ledger personas; null for non-ledger suites
   id: string;                 // Machine-friendly unique identifier (e.g. "ledger-3-dev")
-  role: AgentRole;            // Canonical role name matching the workflow manifest
+  role: string;                // Canonical role name for ledger entries; free-form for non-ledger suites
   version: string;            // Persona version string (e.g. "3.6.1")
+  suite?: string;              // "ledger" | "standalone" | "ledger-support"; optional for backward compatibility
+  model?: string;              // Human-readable model name resolved at build time
+  model_slug?: string;          // API-compatible model slug resolved at build time
+  cc_model?: string;            // Claude Code model identifier resolved at build time
   vscode: TargetNames;        // Names for the VS Code target
   claude_code: TargetNames;   // Names for the Claude Code target
   deep_agents: TargetNames;   // Names for the Deep Agents target
 }
 
-// Per-role agent name mapping loaded from personas/name-mapping.json at module-load time.
-// Provides canonical, target-specific agent names for each role (VS Code, Claude Code,
-// Deep Agents) without requiring runtime string manipulation.
-// Keyed by role name (e.g. 'Developer') — keys match AGENT_ROLES values exactly.
-// Loaded via createRequire('../../../personas/name-mapping.json') from dist/utils/constants.js.
-const AGENT_NAMES: Record<AgentRole, NameMappingEntry>;
+// Per-role agent name mapping, keyed by role name (e.g. 'Developer') — keys
+// match AGENT_ROLES values exactly. Returned by getAgentNames(), never read
+// as a module-level constant.
+type AgentNameMap = Record<AgentRole, NameMappingEntry>;
+
+// resolveNameMappingPath(): string
+//   Resolves the absolute path to personas/name-mapping.json. Reads
+//   WORKSPACE_ROOT from ./ledger-root.js on every call (not cached into a
+//   module-level constant), so tests that mock ledger-root.js with a getter
+//   take effect with no override parameter needed.
+//
+// isNameMappingPresent(): boolean
+//   Cheap existence check (statSync only, no parsing) for whether the file
+//   currently exists on disk.
+//
+// getAgentNames(): AgentNameMap
+//   Tolerant, mtime-reloading loader. Never throws: returns {} when the file
+//   is missing, unreadable, malformed JSON, or not a JSON array. Each
+//   distinct failure kind ("missing" | "malformed" | "non-array") writes
+//   exactly one deduplicated stderr warning, reset after the next successful
+//   read; writes nothing to stdout. The file's mtimeMs is checked on every
+//   call — content is only re-read and re-parsed when the mtime has changed
+//   (or nothing is cached yet), so a persona rebuild is picked up without a
+//   process restart while repeated calls between rebuilds stay cheap.
+//
+// _resetNameMappingCache(): void
+//   Test-only: clears the module-level cache. Not for production use.
 ```
 
 **Importers of `AGENT_ROLES`:**
@@ -3318,8 +3805,8 @@ const AGENT_NAMES: Record<AgentRole, NameMappingEntry>;
 **Importers of `SPEC_VERSION`:**
 - `src/tools/project-lifecycle.ts` — sets `ledger_version: SPEC_VERSION` on the root index object inside `initializeProject()`; also used in forward-compatibility warning comparisons in `getProjectStatus()`
 
-**Importers of `AGENT_NAMES`:**
-- `src/tools/workflow-handoff.ts` — reads `AGENT_NAMES[role]` to populate `cc_agent_name`, `vs_agent_name`, and `da_agent_name` fields in the `auto_handoff` response payload (added in WP-005)
+**Importers of `getAgentNames()` (from `src/utils/name-mapping.ts`):**
+- `src/tools/workflow-handoff.ts` — reads `getAgentNames()[role]` per call to populate `cc_agent_name`, `vs_agent_name`, and `da_agent_name` fields in the `auto_handoff` response payload (added in WP-005); omits all three fields (rather than throwing) when the lookup returns no entry — e.g. `personas/name-mapping.json` is absent or malformed
 
 **Manifest invariant test:** `tests/utils/workflow-manifest.test.ts` validates the structural invariants of `shared/workflow-manifest.json` at test time and asserts derived-constant parity — confirming that `AGENT_ROLES`, `ORCHESTRATING_ROLES`, `PIPELINE_TYPES`, `DEFAULT_PIPELINE_STAGES`, `PIPELINE_AGENT_MAP`, `MAX_REWORK_COUNT`, `STALE_PIPELINE_HOURS`, and `SPEC_VERSION` all match the manifest values exactly. Also includes a `resolveFailAgent() parity — manifest fail_routing` describe block that verifies `resolveFailAgent()` output for all 6 pipeline types matches the manifest's `fail_routing` → role name resolution — guarding against drift if manifest routing values change without updating the implementation. Any future manifest edit that causes a constant or routing resolution to diverge will fail the test suite (39 tests).
 
@@ -4134,6 +4621,24 @@ async function resolveMultiStoreLedgerRoot(
 ): Promise<string | undefined>;
 ```
 
+### Node Error Guards — `src/utils/node-errors.ts`
+
+Consolidates the `isNodeError` type guard that previously existed as five identical (or near-identical) private copies across the storage and GUI modules, plus a `hasErrorCode` helper for the `isNodeError(err) && err.code === 'X'` idiom that recurred at every one of those call sites. Where the private copies differed, the strictest check was kept: some only tested `'code' in err` (true even when `code` holds a non-string value); this shared guard always requires `code` to be a `string`.
+
+```typescript
+// Exported from src/utils/node-errors.ts
+
+// Narrows err to NodeJS.ErrnoException when it is an Error instance
+// carrying a string `code` property (e.g. 'ENOENT', 'ENOTDIR').
+function isNodeError(err: unknown): err is NodeJS.ErrnoException;
+
+// Tests whether err is a Node.js error carrying the exact given code.
+// Equivalent to isNodeError(err) && err.code === code.
+function hasErrorCode(err: unknown, code: string): boolean;
+```
+
+Consumers: `src/storage/json-state-file.ts`, `src/gui/config.ts`, `src/gui/log-resolver.ts`, `src/gui/model-registry.ts` — each previously held its own private copy of the `isNodeError` check.
+
 ---
 
 ## Internal Testing Utilities
@@ -4318,7 +4823,7 @@ export const _internal: {
   // requirePmRole() before any disk I/O, then validateActiveStages() before
   // project resolution — both guards run ahead of createWorkPackage's single
   // _ledgerRoot guard (§58). Replaces the WP's whole active_pipeline_stages list
-  // under seven ordered guards; see the dedicated tool entry above and Flow R in
+  // under seven ordered guards; see the dedicated tool entry above and Flow U in
   // data-flows.md for the full guard sequence.
   updatePipelineStages: (
     args: UpdatePipelineStagesArgs,
@@ -5045,12 +5550,39 @@ async function resolveProjectStore(
 ```
 
 ```typescript
+// Tracks every in-flight fire-and-forget self-heal write issued by handleGetProject (see below).
+// Production code never awaits these writes — they stay fire-and-forget so no request pays extra
+// lock latency on every project view. Each write's promise is added on start and removed in a
+// `finally` regardless of outcome, so the set never grows unbounded.
+const pendingSelfHeals: Set<Promise<void>>;
+
+// Test-only hook: resolves once every write currently tracked in pendingSelfHeals has settled.
+// Used by afterEach teardown hooks (tests/gui/api.test.ts, tests/gui/multi-store-api.test.ts) to
+// await a self-heal write's completion before removing the temp directory, instead of sleeping for
+// an arbitrary duration — see "Fire-and-Forget Self-Heal Writes Use the `pendingSelfHeals` Test
+// Seam" in constraints-testing.md.
+// @internal Test-only. Not part of the public API surface.
+export async function __awaitPendingSelfHealsForTesting(): Promise<void>;
+
 // Error type used by all handlers
 export class ApiError extends Error {
   code: string;       // 'NOT_FOUND' | 'FORBIDDEN' | 'VALIDATION_ERROR'
   message: string;
-  details?: unknown;
+  details?: unknown;  // server-side only — gui/server.ts's sendError() never serializes this onto the wire
 }
+
+// Summarizes a Zod safeParse() failure's issues array into a single, human-readable string for an
+// ApiError's message — never `details` (see above). Describes only the first issue, plus an
+// "(and N more)" suffix when more are present; path segments are joined with '.', an empty path
+// (the request body itself) renders as options.rootLabel ?? 'body'. `invalid_enum_value`,
+// `invalid_literal`, and `invalid_union_discriminator` get a fixed, value-free message instead of
+// Zod's default (which quotes the received value) — a rejected field may hold a secret. Wired into
+// all seven GUI validation call sites (gui/api-error-codes.ts x4, gui/api.ts x3) so a rejected
+// request's message names the failing field without ever echoing what was received.
+export function describeZodIssues(
+  issues: readonly ZodIssue[],
+  options?: { rootLabel?: string }  // rootLabel defaults to 'body'
+): string;
 
 // Enriched project summary — extends ProjectMeta with WP counters, resolved project name, and repository name.
 // Returned inside ProjectListEnvelope.projects. Fields default to 0 / null on per-project read failure so one
@@ -7094,16 +7626,19 @@ export async function computeHandoffStatus(
 //   auto_handoff: {
 //     agent_name: string,           // VS Code agent name (e.g. "3 - Developer v3.5.2")
 //     agent_id?: string,            // VS Code agent id (e.g. "ledger-3-dev") — omitted when absent
-//     cc_agent_name: string,        // Claude Code agent slug from AGENT_NAMES (e.g. "3-developer")
-//     vs_agent_name: string,        // VS Code agent display name from AGENT_NAMES (e.g. "3 - Developer v3.6.1")
-//     da_agent_name: string,        // Deep Agents agent slug from AGENT_NAMES (e.g. "3-developer")
+//     cc_agent_name?: string,       // Claude Code agent slug from getAgentNames() (e.g. "3-developer")
+//     vs_agent_name?: string,       // VS Code agent display name from getAgentNames() (e.g. "3 - Developer v3.6.1")
+//     da_agent_name?: string,       // Deep Agents agent slug from getAgentNames() (e.g. "3-developer")
 //     prompt: string,               // Project path prompt, prefixed with "@{agent_id}\n" when agent_id is present
 //   }
 //
 // agent_id is resolved via getAgentId(nextAgent) and omitted (not set to null) when the
 // registry has no id for the next agent, ensuring clean JSON serialization.
-// cc_agent_name / vs_agent_name / da_agent_name are resolved via AGENT_NAMES[nextAgent] and
-// omitted as a group (via a guarded spread) when the role has no entry in the name mapping.
+// cc_agent_name / vs_agent_name / da_agent_name are resolved via getAgentNames()[nextAgent]
+// (src/utils/name-mapping.ts — a tolerant, mtime-reloading loader for the gitignored
+// personas/name-mapping.json) and omitted as a group (via a guarded spread) when the role
+// has no entry — including when the file is absent or malformed, in which case
+// getAgentNames() returns {} rather than throwing.
 export function buildHandoffResponse(
   currentAgent: string,
   status: string,
@@ -7153,9 +7688,8 @@ export interface ToolModule {
 
 // The full, ordered set of tool modules registered by the MCP server at
 // startup — the single source of truth for which modules contribute tools.
-// Frozen via Object.freeze. 12 entries, one per tool module (today: the 11
-// modules previously imported individually in src/index.ts, plus ping and
-// standalone-import, which registerAllTools() now covers the same way).
+// Frozen via Object.freeze. One entry per tool module — including ping,
+// standalone-import and error-codes, which registerAllTools() covers the same way.
 export const TOOL_MODULES: readonly ToolModule[];
 
 // Registers every tool module's tools against `server`, recording each
@@ -7171,6 +7705,6 @@ export function registerAllTools(
 ): string[];
 ```
 
-**Startup wiring in `src/index.ts`:** `const registeredToolNames = registerAllTools(server);` replaces the former sequence of 12 individual `fooTools.register(server)` calls. The `[project-ledger-mcp] Registered tools: …` startup log line is built from `registeredToolNames.join(', ')` — there is no separate hand-maintained tool-name literal to keep in sync.
+**Startup wiring in `src/index.ts`:** `const registeredToolNames = registerAllTools(server);` replaces the former sequence of individual `fooTools.register(server)` calls. The `[project-ledger-mcp] Registered tools: …` startup log line is built from `registeredToolNames.join(', ')` — there is no separate hand-maintained tool-name literal to keep in sync.
 
 **Test coverage:** `tests/tools/registry.test.ts` proves forwarding (the real `registerTool` is called with the original arguments and its result is returned), registration-order preservation, duplicate-name detection, and `TOOL_MODULES`'s frozen/unique-id invariants. `tests/startup/tool-log-sync.test.ts` and `tests/tools/schema-integrity.test.ts` both derive their expected tool sets from `registerAllTools()` rather than maintaining their own copies — see their entries in `file-tree.md`.

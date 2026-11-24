@@ -15,6 +15,7 @@ All routes are prefixed with `/api`. Response envelope on success: raw JSON valu
 | `VALIDATION_ERROR` | 400 |
 | `CONFLICT` | 409 |
 | `PAYLOAD_TOO_LARGE` | 413 |
+| `UNSUPPORTED_MEDIA_TYPE` | 415 |
 | *(unhandled)* | 500 |
 
 ---
@@ -244,6 +245,28 @@ The `buildInProgress` module-level flag prevents concurrent builds. It is cleare
 | `GET` | `/api/config` | `handleGetConfig` | Current GUI configuration. |
 | `PUT` | `/api/config` | `handleUpdateConfig` | Update GUI configuration. Body validated by `GuiConfigPartialSchema`. |
 | `GET` | `/api/server-info` | *(inline)* | Boot vs disk versions + stale flag. |
+| `GET` | `/api/setup-notices` | `handleGetSetupNotices` | Active post-clone/post-pull setup gaps (see 1.7a). |
+
+---
+
+### 1.7a Setup Notices
+
+All logic lives in `gui/setup-notices.ts`. Reports setup gaps the GUI should surface as a dismissible banner, instead of letting them show up as confusing downstream errors (an empty persona list, a model-assignment screen the user can't use, etc.).
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `GET` | `/api/setup-notices` | `handleGetSetupNotices` | `{ notices: SetupNotice[] }` — `[]` when nothing is amiss. |
+
+```typescript
+interface SetupNotice {
+  id: string;             // Stable machine-readable id, e.g. "personas-not-built"
+  title: string;           // Short summary shown in the banner
+  message: string;         // Longer explanation
+  action?: { kind: string }; // Optional client-side remediation, e.g. "rebuild-personas"
+}
+```
+
+`detectSetupNotices()` is the pure, synchronous detection function `handleGetSetupNotices()` wraps; today it returns exactly one possible notice — `personas-not-built` with a `rebuild-personas` action — when `isNameMappingPresent()` (from `src/utils/name-mapping.ts`) is `false`. The response is array-shaped so a second notice can be added later with no client-side contract change; a `SetupNoticeProvider` registry is deferred until a second consumer exists.
 
 ---
 
@@ -327,6 +350,65 @@ Body: `{ order: string[] }` — must contain exactly the current store IDs, no d
 
 ---
 
+### 1.9 Error Codes
+
+All handlers live in `gui/api-error-codes.ts`. Every route carries the `requireLoopbackRequest` guard (`gui/route-guards.ts`); the two body-carrying routes additionally carry `requireJsonContentType`. These routes reach third-party provider plugin code and the user's own stored secrets — see `constraints.md` → §7 "Request-Level Guards — Loopback-Only, JSON-Only, Fail-Closed Secret Merge" for why they are guarded rather than relying on the response-only CORS header the rest of the server sends. `GET /api/error-codes/providers` and `GET /api/error-codes/config` are safe to poll; `POST /api/error-codes/test` never calls a provider's `allocate`.
+
+| Method | Path | Handler | Description |
+|--------|------|---------|-------------|
+| `GET` | `/api/error-codes/providers` | `handleListErrorCodeProviders` | Lists every registered provider (built-in and plugin), the scanned plugin directory, and any plugin load errors. |
+| `GET` | `/api/error-codes/config` | `handleGetErrorCodeConfig` | The allocator's config, with every secret masked to `{ set: boolean }`. Uses `readErrorCodeConfig()` (not `loadErrorCodeConfig()`), so a `warning` for a salvaged/corrupt/unreadable `config.json` reaches this response instead of only stderr. |
+| `PUT` | `/api/error-codes/config` | `handleUpdateErrorCodeConfig` | Updates top-level config fields and/or one provider's settings. |
+| `POST` | `/api/error-codes/test` | `handleTestErrorCodeProvider` | Connection-tests a provider's settings without allocating a code. |
+| `GET` | `/api/error-codes/temporary` | `handleListTemporaryErrorCodesGui` | Logged temporary codes, newest-first, capped by `?limit` (default 200). Response `{ entries, warning? }`; `warning` is passed through unchanged when the log is corrupt (the entries are then the recoverable ones). |
+
+#### `ProviderListItem` — `GET /api/error-codes/providers` Response Shape
+
+```typescript
+interface ProviderListItem {
+  id: string;
+  label: string;
+  description?: string;
+  settings: SettingField[];     // descriptors only — never a settings value
+  supports_test: boolean;       // true when the provider offers test or peek
+  source: 'builtin' | 'plugin';
+  path?: string;                // present only for source: 'plugin' — a deliberate, loopback-guarded exception to "no internal paths in responses"
+}
+```
+
+Full response: `{ providers: ProviderListItem[], plugin_dir: string, load_errors: { source: string, message: string }[] }`.
+
+#### `ErrorCodeConfigResponse` — `GET`/`PUT /api/error-codes/config` Response Shape
+
+```typescript
+interface ErrorCodeConfigResponse {
+  active_provider: string;
+  temporary_prefix: string;
+  timeout_ms: number;
+  retry: { default_wait_ms: number; max_wait_ms: number };
+  providers: Record<string, Record<string, unknown>>; // secret fields rendered as { set: boolean }; only currently-registered providers appear
+  warning?: string; // GET only — see below
+}
+```
+
+`PUT` body: `{ active_provider?, temporary_prefix?, timeout_ms?, retry?, provider_id?, settings?, clear_secrets? }` — `temporary_prefix` must match `TemporaryPrefixSchema` (`src/error-codes/config-store.ts`: 1–6 digits, no leading zero); any other value is a `400 VALIDATION_ERROR` whose `error.message` is built by `describeZodIssues()` (`src/gui/errors.ts`) and names the failing field (e.g. `temporary_prefix: …`) plus the schema's own message — `details` (the raw Zod issues, which can carry the received value) never reaches the wire, only `message` does — and nothing is written. `settings`/`clear_secrets` apply only when `provider_id` is present and names a currently-registered provider; an absent/empty secret in `settings` keeps the stored value, a key listed in `clear_secrets` clears it. An uninstalled provider's stored settings are left untouched by any update that does not target its `provider_id`, which is how they survive the round trip — but omitted from the response, since this route has no settings descriptors to mask their secrets safely.
+
+**`warning`** is present only on the `GET` response, and only when `config.json` needed salvage or could not be used as stored (`src/error-codes/config-store.ts`'s `readErrorCodeConfig()`): absent for a missing or valid file; for a salvaged config it names the invalid field paths only (never a value); for a corrupt or unreadable file it is the same fixed, already-sanitized classification reason the server's stderr line would carry (never the raw JSON-parser message, which would quote file content holding secrets). The `PUT` response (`handleUpdateErrorCodeConfig`) never carries a `warning` — a successful save has just written a fully-validated `config.json`, so there is nothing left to salvage — and the Error Codes tab's own save handler relies on this to clear its banner (see `config-error-codes.js`'s `ecConfigWarning` below).
+
+#### `POST /api/error-codes/test` Body and Response
+
+Body: `{ provider_id: string, settings?: Record<string, unknown> }`.
+
+Response: `{ supported: boolean, secrets_merged: boolean, ok?: boolean, reason?: string, detail?: string, value?: number, message?: string }`. `supported: false` (with `message`) when the provider offers neither `test` nor `peek` — `allocate` is never called by this route. `secrets_merged` is `true` only when every non-secret setting field equals its stored value (see `mergeSettingsForTest` in `src/error-codes/settings-schema.ts`) — any other difference tests the incoming settings only, so a changed destination is never tested with a password meant for a different one.
+
+#### `GET /api/error-codes/temporary` Query Parameters
+
+| Param | Type | Default | Description |
+|-------|------|---------|-------------|
+| `limit` | number | 200 | Maximum entries returned, newest-first. Must be a positive integer. |
+
+---
+
 ## 1.X Server-side TypeScript Modules
 
 ### `chunk-accumulator.ts` — Shared accumulation layer
@@ -403,6 +485,14 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 Discriminated union of all HTTP methods accepted by the route table. Used as the type of `Route.method`, converting a runtime string check into a compile-time guarantee. The route-table structural test (`tests/gui/route-table.test.ts`) validates method values at runtime as defense-in-depth alongside the compile-time union.
 
+#### `RouteGuard`
+
+```typescript
+export type RouteGuard = (req: IncomingMessage, port: number) => void;
+```
+
+A request-level check `dispatchRoute` runs, in `Route.guards` array order, after the route matches and before `readJsonBody`. Throws `ApiError` to reject the request — `dispatchRoute`'s existing `ApiError` handling maps it to a status code and error body exactly as it would for a handler-thrown error. Implemented by `requireLoopbackRequest` and `requireJsonContentType` in `gui/route-guards.ts`.
+
 #### `Route` (interface)
 
 A declarative route entry for `buildRoutes()` and `dispatchRoute()`.
@@ -414,16 +504,25 @@ A declarative route entry for `buildRoutes()` and `dispatchRoute()`.
 | `handler` | `(body: unknown, groups?: Record<string, string>, query?: URLSearchParams) => Promise<unknown>` | ✓ | Called with the parsed body (or `undefined` when `noBody` is set), named capture groups, and query parameters. |
 | `statusCode` | `number` | — | Response status code (default `200`). Use `204` for empty responses. |
 | `noBody` | `boolean` | — | When `true`, skip `readJsonBody()`. Use for GET routes and body-free mutations. |
+| `guards` | `readonly RouteGuard[]` | — | Run in array order after the route matches and before `readJsonBody`. A route with no `guards` behaves exactly as before this field existed. |
 
 ### Exported Functions
 
 #### `buildRoutes(ledgerRoot, configPath, orchestratorLogsDir, bootVersions): Route[]`
 
-Builds the declarative route table consumed by `dispatchRoute()`. **Delegates to six non-exported domain sub-builders** (`buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildProjectRoutes`) composed via spread — each sub-builder receives only the closure variables its handlers require. Routes are organized into Section A (body-parsing), Section B (keyword-specific body-free, `noBody: true`), Section C (catch-all body-free, `noBody: true`). Section B must precede Section C (load-bearing ordering — see constraint §9).
+Builds the declarative route table consumed by `dispatchRoute()`. **Delegates to eight non-exported domain sub-builders** (`buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildStoreRoutes`, `buildErrorCodeRoutes`, `buildProjectRoutes`) composed via spread — each sub-builder receives only the closure variables its handlers require. Routes are organized into Section A (body-parsing), Section B (keyword-specific body-free, `noBody: true`), Section C (catch-all body-free, `noBody: true`). Section B must precede Section C (load-bearing ordering — see constraint §9). `buildErrorCodeRoutes()` takes no arguments — its handlers operate on the user-level `~/.ai-insights/error-codes/` directory, not on any ledger root or project path.
 
 #### `getRouteDescriptors(): Route[]`
 
 Zero-argument factory for structural testing. Calls `buildRoutes('/dev/null', '/dev/null', '/dev/null', null)` with sentinel arguments so tests can inspect the route table structure without requiring real filesystem paths. Use this in test code instead of calling `buildRoutes()` directly with dummy constants.
+
+---
+
+## 1.Y Server-side TypeScript Exports (`gui/api.ts`)
+
+### `__awaitPendingSelfHealsForTesting(): Promise<void>`
+
+Test-only hook. `handleGetProject` never awaits its own fire-and-forget `.meta.json` cache-refresh self-heal write — doing so would add lock latency to every production project-detail request — so each write's promise is tracked in a module-level `pendingSelfHeals: Set<Promise<void>>` (added on start, removed in `finally` regardless of outcome). `__awaitPendingSelfHealsForTesting()` resolves once every currently-tracked write has settled, giving a test a deterministic point to wait for before tearing down a temp directory the write may still target, instead of a fixed-duration sleep. See "Fire-and-Forget Self-Heal Writes Use the `pendingSelfHeals` Test Seam" in the MCP server's `constraints-testing.md`.
 
 ---
 
@@ -472,6 +571,12 @@ Client-side REST API wrapper. All methods return Promises. All methods can rejec
 | `rebuildPersonas` | `() → Promise<object>` | `POST /api/personas/rebuild` |
 | `getInsights` | `() → Promise<object[]>` | `GET /api/insights` |
 | `getServerInfo` | `() → Promise<object>` | `GET /api/server-info` |
+| `getSetupNotices` | `() → Promise<{ notices: object[] }>` | `GET /api/setup-notices` |
+| `getErrorCodeProviders` | `() → Promise<{ providers: object[], plugin_dir: string, load_errors: object[] }>` | `GET /api/error-codes/providers` |
+| `getErrorCodeConfig` | `() → Promise<object>` | `GET /api/error-codes/config` |
+| `updateErrorCodeConfig` | `(data: object) → Promise<object>` | `PUT /api/error-codes/config` |
+| `testErrorCodeProvider` | `(providerId: string, settings?: object) → Promise<object>` | `POST /api/error-codes/test` |
+| `getTemporaryErrorCodes` | `(limit?: number) → Promise<{ entries: object[], warning?: string }>` | `GET /api/error-codes/temporary` |
 | `orchestratorStart` | `(planPath, dryRun, resumeThreadId?) → Promise<object>` | `POST /api/orchestrator/start` |
 | `orchestratorGetQueue` | `() → Promise<object>` | `GET /api/orchestrator/queue` |
 | `orchestratorGetRunStatus` | `(slug) → Promise<object>` | `GET /api/orchestrator/run-status/:filename` |
@@ -514,7 +619,16 @@ Client-side REST API wrapper. All methods return Promises. All methods can rejec
 
 ---
 
-### 2.5 `OrchestratorWidgets` (js/orchestrator-widgets.js)
+### 2.5 `SetupNotices` (setup-notices.js)
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `init` | `() → void` | Insert the `#setup-notices` live region before `<header>` (after `.stale-banner` when present) and start polling `GET /api/setup-notices` while notices exist. |
+| `refresh` | `() → void` | Re-fetch `GET /api/setup-notices` immediately and re-render; called by `views/config-persona-models.js`'s `pmDoRebuild()` on a successful rebuild (guarded by `window.SetupNotices`). No other method is exposed — see `data-flows.md` §17 for the full lifecycle (polling pause on `document.hidden`, the 409 "already running" state, and the one-way tab→banner coupling). |
+
+---
+
+### 2.6 `OrchestratorWidgets` (js/orchestrator-widgets.js)
 
 | Method | Signature | Returns | Description |
 |--------|-----------|---------|-------------|
@@ -528,7 +642,7 @@ Client-side REST API wrapper. All methods return Promises. All methods can rejec
 
 ---
 
-### 2.6 Global Utility Functions (utils.js)
+### 2.7 Global Utility Functions (utils.js)
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
@@ -569,17 +683,19 @@ Each view file exposes a global function called by `Router.dispatch()`:
 | `renderConfig` | `config.js` | `#/config` |
 | `renderKnowledge` | `knowledge.js` | `#/knowledge` |
 
+The Configuration view's Error Codes tab (`config-error-codes.js`) has no hash route of its own — it is a tab within `#/config`, entered via `renderConfigTabContent()`'s dispatcher (see below).
+
 #### `config.js` — Internal Functions
 
-`renderConfig` is the router entry point; it delegates to a set of named internal functions. The Configuration view has three tabs — General, Persona Models (implemented in `config-persona-models.js`), and Model Registry (implemented in `config-model-registry.js`).
+`renderConfig` is the router entry point; it delegates to a set of named internal functions. The Configuration view has five tabs — General, Stores (implemented in `config-stores.js`), Persona Models (implemented in `config-persona-models.js`), Model Registry (implemented in `config-model-registry.js`), and Error Codes (implemented in `config-error-codes.js`). `CONFIG_TABS` — an array of `{ key, label, render, leave, reset }` descriptors declared in `config.js` — is the single source of truth for which tabs exist, which button labels appear, and how tab content is dispatched and cleaned up; `config.js` never reads or writes another module's `cs*`/`mr*`/`pm*`/`ec*` fields directly, only through a descriptor's three functions. `configFindTab(key)` looks up a descriptor by key, returning `undefined` when not found. See GUI constraint §25 "Config Tab Modules" for the full contract each descriptor's `render`/`leave`/`reset` must satisfy, and the "Two leave semantics" distinction (always-reset vs. reset-only-on-discard) it documents.
 
 **Scaffold functions:**
 
 | Function | Description |
 |----------|-------------|
 | `renderConfig(app)` | Entry point. Loads `API.getConfig()`, `API.getModels()`, `API.getPersonas()`, `API.getAssignments()`, and `API.getStores()` in parallel via `Promise.all`. Gracefully falls back to `[]` when optional API methods don't yet exist (`API.getStores` is guarded with a presence ternary for deployment safety). |
-| `renderConfigPage(app, config, models, personas, assignments, stores)` | Renders the page scaffold (heading + tab bar + `#config-tab-content`). Resets all `configDirty` flags and Model Registry local state on entry. Wires the tab-bar click handler with an unsaved-changes guard. |
-| `renderConfigTabContent(config, models, personas, assignments, stores)` | Dispatcher — reads `configActiveTab` and sets `#config-tab-content` innerHTML to the output of the active tab's render function. |
+| `renderConfigPage(app, config, models, personas, assignments, stores)` | Renders the page scaffold (heading + tab bar, built from `CONFIG_TABS.map()` + `#config-tab-content`). Resets every `configDirty` key and calls every `CONFIG_TABS` descriptor's `reset()` on entry — fresh server data is always about to replace whatever state existed, so every tab is reset unconditionally here regardless of its `leave` semantics. Wires the tab-bar click handler with an unsaved-changes guard. |
+| `renderConfigTabContent(config, models, personas, assignments, stores)` | Dispatcher — looks up the active tab via `configFindTab(configActiveTab)` and calls its `render(config, models, personas, assignments, stores)`; each tab's `render` ignores the arguments it does not need. |
 
 **General tab functions:**
 
@@ -588,27 +704,33 @@ Each view file exposes a global function called by `Router.dispatch()`:
 | `renderGeneralTab(config)` | Returns the General tab HTML (wraps the settings form in a `UI.card()`). |
 | `wireGeneralTabEvents()` | Attaches `change` and `input` listeners (both needed — checkboxes fire `change`, text/number inputs fire `input`) plus the `submit` handler to the General tab form. Sets `configDirty.general = false` on successful save. |
 
-**Persona Models tab** (defined in `config-persona-models.js` — loaded before `config.js`):
+**Persona Models tab** (defined in `config-persona-models.js` — loaded before `config.js`; registered in `CONFIG_TABS` as `{ render: renderPersonaModelsTab, leave: pmLeaveTab, reset: pmResetState }`):
 
 | Function | Description |
 |----------|-------------|
 | `renderPersonaModelsTab(models, personas, assignments)` | Entry point called by `renderConfigTabContent()`. Initializes pm* module state on first render or after a discard reset (`pmModels === null`); preserves existing state across tab switches that don't trigger the discard-changes path, so unsaved edits survive navigation. Returns `pmBuildTabHtml()`. |
+| `pmLeaveTab(discarded)` | Leaves the tab: always increments `pmVisit` (invalidating in-flight requests). Resets `pmModels`/`pmOriginal`/`pmCollapsed`/`pmReplaceOpen` (and `pmIsBuilding`, via the same branch) only when `discarded` is `true` — `render`'s arguments are not refreshed after a save, so resetting on every leave would re-initialise from stale data. Registered as `CONFIG_TABS`'s `leave`. |
+| `pmResetState()` | Full reset for a fresh page load: calls `pmLeaveTab(true)`. Registered as `CONFIG_TABS`'s `reset`. |
 | `pmRefreshTab()` | Re-renders the Persona Models tab into `#config-tab-content`, re-wires events, and syncs `configDirty.personaModels` via `pmHasChanges()`. Called after any state mutation. |
 | `pmBuildTabHtml()` | Builds the full tab HTML: suite sections (collapsed/expanded), per-persona model dropdowns, default model selector, stale-assignments banner, and action bar. |
-| `pmWireEvents()` | Attaches all event handlers via card-level event delegation: per-persona edit/done/cancel, default-model change, suite collapse/expand, Replace Model inline form, Rebuild and Save buttons. |
-| `pmDoSave()` | POSTs current `pmAssignments` to `PUT /api/model-assignments`. On success, updates `pmOriginal` snapshot and sets `configDirty.personaModels = false`. |
-| `pmDoRebuild()` | Triggers `POST /api/models/rebuild-personas`. Shows a build-progress state and refreshes the tab on completion. |
+| `pmWireEvents()` | Attaches all event handlers via card-level event delegation: per-persona edit/done/cancel, default-model change, suite collapse/expand, Replace Model inline form, Rebuild and Save buttons. Async handlers (e.g. the Replace Model inline form) capture `pmVisit` before their request and bail out in both `.then` and `.catch` when it no longer matches. |
+| `pmDoSave()` | POSTs current `pmAssignments` to `PUT /api/model-assignments`. Captures `pmVisit` before the request; bails out in both `.then` and `.catch` when stale. On success, updates `pmOriginal` snapshot and sets `configDirty.personaModels = false`. |
+| `pmDoRebuild()` | Triggers `POST /api/models/rebuild-personas`. Captures `pmVisit` before the request. Shows a build-progress state (`pmIsBuilding = true`) and refreshes the tab on completion. `pmIsBuilding` is cleared unconditionally by the settle callback — even when the visit is stale — before the stale check runs, since the flag spans visits (mirrors `ecSaveInFlight`); the nested `Promise.all` re-render that follows is itself guarded by the same `pmVisit` check. |
 | `pmHasChanges()` | Returns `true` when `pmAssignments` differs from `pmOriginal` (checks `default_model_uuid` and all `persona_models` entries). |
 | `pmCloneAssignments(a)` | Deep-clones an assignments object for snapshot comparison. |
 | `pmModelName(uuid)` | Resolves a model UUID to its display name from `pmModels`. |
 | `pmDirtyDot(isDirty)` | Returns the HTML for a dirty-indicator dot, or `''`. |
 | `pmBuildModelOptions(selectedUuid, includeDefault)` | Builds `<option>` elements for a model dropdown; optionally prepends a "Default" option. |
 
+**Model Registry tab** (defined in `config-model-registry.js` — loaded before `config.js`; registered in `CONFIG_TABS` as `{ render: renderModelRegistryTab, leave: mrLeaveTab, reset: mrResetState }`):
+
 **Model Registry tab — core render functions:**
 
 | Function | Description |
 |----------|-------------|
 | `renderModelRegistryTab(models)` | Main render entry. Initialises `mrModels` / `mrOriginal` / `mrEditingId` from server data on first call; preserves existing state if already populated (user may have unsaved edits). Returns `mrBuildTabHtml()`. |
+| `mrLeaveTab(discarded)` | Leaves the tab: always increments `mrVisit` (invalidating in-flight requests). Resets `mrModels`/`mrOriginal`/`mrEditingId` only when `discarded` is `true`, for the same stale-page-load-argument reason as Persona Models' `pmLeaveTab`. Registered as `CONFIG_TABS`'s `leave`. |
+| `mrResetState()` | Full reset for a fresh page load: calls `mrLeaveTab(true)`. Registered as `CONFIG_TABS`'s `reset`. |
 | `mrRefreshTab()` | Re-renders the tab content into `#config-tab-content` and re-wires all event handlers. Syncs `configDirty.modelRegistry` via `mrHasChanges()`. Called after any state mutation (edit, delete, restore, save). |
 | `mrBuildTabHtml()` | Builds the full Model Registry tab HTML string: model table (with read/edit rows), Add Model form, and action bar. Disables the Save button when any row has a slug validation error. |
 | `mrRenderRow(model)` | Returns HTML for a single read-only model row. Shows dirty-indicator dots for changed fields (name, slug, cc_model) vs the original snapshot. Adds strikethrough row class for pending deletions. |
@@ -638,23 +760,56 @@ Each view file exposes a global function called by `Router.dispatch()`:
 
 | Function | Description |
 |----------|-------------|
-| `mrDoSave()` | Strips `_deleted` entries from the working copy and sends the result to `PUT /api/models`. On success, refreshes `mrModels` / `mrOriginal` from the server response. On 409 CONFLICT, shows an error directing the user to the Replace Model feature on the Persona Models tab. |
-| `mrDoLoadDefaults()` | Shows a confirmation dialog, then calls `POST /api/models/load-defaults`. On success, refreshes state and displays slug-collision conflicts if any were returned. |
+| `mrDoSave()` | Strips `_deleted` entries from the working copy and sends the result to `PUT /api/models`. Captures `mrVisit` before the request; bails out in both `.then` and `.catch` when stale (a successful stale response still reconciles a retained `mrModels`/`mrOriginal` cache via `mrReconcileStale()`, with no DOM writes). On success, refreshes `mrModels` / `mrOriginal` from the server response. On 409 CONFLICT, shows an error directing the user to the Replace Model feature on the Persona Models tab. |
+| `mrDoLoadDefaults()` | Shows a confirmation dialog, then calls `POST /api/models/load-defaults`. Captures `mrVisit` before the request; bails out in both `.then` and `.catch` when stale (a successful stale response reconciles a retained cache via `mrReconcileStale()`). On success, refreshes state and displays slug-collision conflicts if any were returned. |
 
-**Module-level state** (`config.js` globals):
+**Error Codes tab** (defined in `config-error-codes.js` — loaded before `config.js`; registered in `CONFIG_TABS` as `{ render: function () { ecRenderTab(); }, leave: ecResetState, reset: ecResetState }` — Error Codes has no "keep state unless discarded" case, so `leave` and `reset` are the same function):
+
+| Function | Description |
+|----------|-------------|
+| `ecRenderTab()` | Entry point called by `renderConfigTabContent()`. Lazily fetches `API.getErrorCodeProviders()`, `API.getErrorCodeConfig()`, and `API.getTemporaryErrorCodes()` in parallel on first activation only (`ecProviders === null`); every later call (including a provider switch) re-renders synchronously from cached state. This lazy-load contract is why Error Codes data is never added to `renderConfig()`'s own `Promise.all`. |
+| `ecBuildTabHtml()` | Builds the full tab HTML: an escaped error banner above the settings form when `ecConfigWarning` is set, provider `<select>`, the selected provider's descriptor-driven settings form, the core (non-provider) settings fields, Save/Test buttons, the plugins panel, and the temporary-codes list. |
+| `ecRenderField(field, storedValue)` | Renders one settings descriptor as a form control: `string`/`path` → text, `url` → `type="url"`, `secret` → password input (never pre-filled) with a Set/Not-set indicator and a conditional Clear-stored-value checkbox, `integer` → number input with `min`/`max`, `boolean` → checkbox, `select` → `<select>`, any unrecognised type → text. Every label/description/value is passed through `escapeHtml()`. |
+| `ecRenderCoreSettings()` | Renders the temporary-code prefix, allocation timeout, and the two retry-wait fields. |
+| `ecRenderPluginsPanel()` | Renders the plugin directory path + copy button, installed plugins (source: `'plugin'`), load errors, and the empty state. |
+| `ecRenderTemporaryList()` | Renders the temporary-codes table (server already returns newest-first, capped) or the empty state, preceded by an escaped error banner when `ecTemporaryWarning` is set. |
+| `ecCollectProviderSettings(provider)` | Reads the current form values for one provider's descriptors into `{ settings, clear_secrets }`. A secret field whose Clear-stored-value checkbox is ticked is omitted from `settings` and listed in `clear_secrets`; a secret left blank (and not cleared) is omitted entirely so the server keeps the stored value. |
+| `ecCollectCoreSettings()` | Reads and validates the core settings fields; returns `null` (after showing an error in the live region) when the temporary prefix does not match `EC_TEMPORARY_PREFIX_PATTERN` (a mirror of the server's `TEMPORARY_PREFIX_PATTERN`, pinned by a test) or a numeric value is not a positive integer. |
+| `ecHandleSave(form)` | The `#ec-form` submit handler. Guarded by `ecSaveInFlight` (returns before validation while a PUT is pending, so a second submit, `submit` event or `requestSubmit()` sends nothing). Calls `form.reportValidity()`, then `PUT /api/error-codes/config` with the selected provider's id as both `active_provider` and `provider_id`, its collected settings/`clear_secrets`, and the core settings. On success, clears `ecConfigWarning` (a successful save just wrote a fully-validated `config.json`, so any prior salvage/corruption warning no longer applies), re-renders the tab (so masked secret state reflects the save) and writes to `#ec-live-region`. |
+| `ecHandleTestClick(btn)` | The "Test connection" click handler. Guarded by `ecTestInFlight` so a second click while a request is pending never fires a second one. Disables the button and sets its text to "Testing…" for the duration. |
+| `ecHandleProviderChange(selectEl)` | The provider `<select>`'s change handler. When `configDirty.errorCodes` is true, shows the same `confirm()` discard dialog as the tab-bar guard; reverts the selection on cancel. |
+| `ecHandleCopyPluginDir(btn)` | Copies the plugin directory path to the clipboard (or a `document.execCommand('copy')` fallback), mirroring `config-stores.js`'s `.cs-copy-btn` pattern. |
+| `ecWireEvents()` | Wires delegated `change`/`input`/`click` listeners on `#config-tab-content` plus the `#ec-form` `submit` handler. Calls `ecCleanup()` first as a duplicate-listener guard. |
+| `ecCleanup()` | Removes every listener `ecWireEvents()` attached. Called before re-wiring within a visit and from `ecResetState()`. |
+| `ecResetState()` | Leaves the tab: increments `ecVisit` (so every request still pending is stale), calls `ecCleanup()`, and resets every `ec*` field except `ecSaveInFlight`. Registered in `CONFIG_TABS` as both `leave` and `reset` — called by `renderConfigPage()`'s reset pass and by the tab-bar exit branch via `leavingTab.leave(discarded)`; `config.js` keeps no list of this module's fields. |
+
+**Module-level state** (`config.js` globals unless noted otherwise):
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `configActiveTab` | `string` | Currently active tab key (`'general'`, `'personaModels'`, `'modelRegistry'`, `'stores'`). Persists across tab switches within a page visit. Defaults to `'general'` (hard-coded at declaration — not runtime-configurable). |
-| `configDirty` | `{ general, personaModels, modelRegistry, stores: boolean }` | Per-tab dirty flags. Set to `true` on any form change. Reset to `false` on save or on `renderConfigPage()` re-entry. `stores` is always `false` — the Stores tab uses immediate writes. |
+| `configActiveTab` | `string` | Currently active tab key (`'general'`, `'personaModels'`, `'modelRegistry'`, `'stores'`, `'errorCodes'`). Persists across tab switches within a page visit. Defaults to `'general'` (hard-coded at declaration — not runtime-configurable). |
+| `configDirty` | `{ general, personaModels, modelRegistry, stores, errorCodes: boolean }` | Per-tab dirty flags. Set to `true` on any form change. Reset to `false` on save or on `renderConfigPage()` re-entry. `stores` is always `false` — the Stores tab uses immediate writes. |
+| `CONFIG_TABS` | `{ key, label, render, leave, reset }[]` | The tab registry — single source of truth for tab buttons, content dispatch and per-tab cleanup. See "`config.js` — Internal Functions" above and GUI constraint §25. |
+| `csVisit` (`config-stores.js`) | `number` | Monotonic visit token, incremented by `csResetState()`. `csHandleModalSave`, `csRefreshTab`, the delete/sync handlers in `csWireEvents`, and `csMoveStore` each capture it before their request and return early in both `.then` and `.catch` when it no longer matches. |
 | `mrModels` | `ModelEntry[] \| null` | Working copy of the model list. May contain edits or pending deletions (entries with `_deleted: true`). `null` until first tab activation. |
 | `mrOriginal` | `ModelEntry[] \| null` | Snapshot loaded from the server — used for dirty comparison via `mrHasChanges()`. Replaced on each successful save. |
 | `mrEditingId` | `string \| null` | UUID of the model row currently in inline edit mode. `null` when no row is being edited. |
+| `mrVisit` (`config-model-registry.js`) | `number` | Monotonic visit token, incremented by `mrLeaveTab()`/`mrResetState()`. `mrDoSave` and `mrDoLoadDefaults` capture it before their request and return early in both `.then` and `.catch` when it no longer matches. |
 | `MR_SLUG_REGEX` | `RegExp` | `/^[a-z0-9]+(-[a-z0-9]+)*$/` — mirrors the server-side slug validation rule. |
+| `pmIsBuilding` (`config-persona-models.js`) | `boolean` | `true` while `pmDoRebuild()`'s request is in flight. Spans visits by design — `pmLeaveTab(discarded)` only resets it when `discarded` is `true`, but `pmDoRebuild`'s own settle callback always clears it first, even when the visit is stale, mirroring `ecSaveInFlight`. |
+| `pmVisit` (`config-persona-models.js`) | `number` | Monotonic visit token, incremented by `pmLeaveTab()`/`pmResetState()`. `pmDoSave`, `pmDoRebuild` (and its nested refresh) and the async `pmWireEvents` callbacks capture it before their request and return early in both `.then` and `.catch` when it no longer matches. |
+| `ecProviders` | `ProviderListItem[] \| null` | Providers from the most recent `GET /api/error-codes/providers`. `null` until the tab's first lazy load, and nulled again by the tab-switch cleanup branch — each tab visit re-fetches. |
+| `ecConfig` | `ErrorCodeConfigResponse \| null` | The allocator's config (secrets masked to `{ set: boolean }`). `null` until first lazy load. |
+| `ecConfigWarning` | `string \| null` | `ecConfig.warning` from the most recent `GET`/`PUT /api/error-codes/config` response — set during the lazy load and after a successful save, rendered as an escaped error banner above the settings form (`ecBuildTabHtml()`), and cleared by `ecResetState()` on tab exit. |
+| `ecSelectedProviderId` | `string \| null` | Id of the provider currently shown in the settings form. Defaults to `ecConfig.active_provider` on load; changed only via the provider `<select>`, guarded by the unsaved-changes `confirm()`. |
+| `ecSaveInFlight` | `boolean` | `true` while a Save (`PUT /api/error-codes/config`) request is pending. Set right before the PUT, cleared first in both settle callbacks; deliberately not reset by `ecCleanup()`. |
+| `ecTestInFlight` | `boolean` | `true` while a "Test connection" request is pending — guards a second click from firing a second request. A stale Test callback (tab left meanwhile) never touches it, so it cannot unlock a newer visit's pending test. |
+| `ecVisit` | `number` | Monotonic visit token, incremented by `ecResetState()`. The lazy load, Save and Test callbacks capture it before the request and return early when it no longer matches, so a late response cannot write into another tab's DOM or repopulate cleared state. A late Save still clears `ecSaveInFlight` first, since that flag spans visits. |
+| `ecTemporaryWarning` | `string \| null` | Notice shown in the Temporary Codes card: the listing's `warning`, or `Temporary codes could not be loaded: …` when only that fetch failed (the settings form still renders). |
 
 **`configDirty` cross-module contract:**
 
-`configDirty` is a shared mutable object with four boolean keys — `general`, `personaModels`, `modelRegistry`, and `stores`. It is declared and owned by `config.js` but mutated directly by all four tab modules:
+`configDirty` is a shared mutable object with five boolean keys — `general`, `personaModels`, `modelRegistry`, `stores`, and `errorCodes`. It is declared and owned by `config.js` but mutated directly by all five tab modules:
 
 | Module | Key written | When written |
 |--------|-------------|--------------|
@@ -662,13 +817,22 @@ Each view file exposes a global function called by `Router.dispatch()`:
 | `config-model-registry.js` | `.modelRegistry` | After any state mutation via `mrHasChanges()` |
 | `config-persona-models.js` | `.personaModels` | After any state mutation via `pmHasChanges()`; successful save → `false` |
 | `config-stores.js` | `.stores` | Never set to `true` — Stores tab uses immediate writes; always `false`. |
+| `config-error-codes.js` | `.errorCodes` | `change`/`input` on any form field → `true` (except the provider `<select>` itself and a Clear-stored-value toggle, which route through `ecHandleProviderChange`/the clear-checkbox branch first); successful save → `false`. |
 
 **Rules companion modules must follow:**
 1. **Never reassign `configDirty`** — the companion files hold a reference to the original object. Replacing it with `configDirty = {}` would break the coordinator's reference silently.
-2. **Only mutate named keys** — do not add or delete keys; `renderConfigPage()` always resets all four known keys on fresh load.
-3. **Load order** — `config-model-registry.js`, `config-persona-models.js`, and `config-stores.js` must load _before_ `config.js` (see `index.html`). All three files reference `configDirty` only inside function bodies (not at module evaluation time), so the forward-reference is safe even though `configDirty` is not yet declared when these files are evaluated.
+2. **Only mutate named keys** — do not add or delete keys; `renderConfigPage()` always resets all five known keys on fresh load.
+3. **Load order** — `config-model-registry.js`, `config-persona-models.js`, `config-stores.js`, and `config-error-codes.js` must load _before_ `config.js` (see `index.html`). All four files reference `configDirty` only inside function bodies (not at module evaluation time), so the forward-reference is safe even though `configDirty` is not yet declared when these files are evaluated.
 
-The tab-bar unsaved-changes guard in `config.js` reads `configDirty[configActiveTab]` on every tab-switch click and shows a `confirm()` dialog when the value is `true`. On discard, it resets the key and clears the affected tab module's state variables.
+**Integration points a future tab module must follow** (established by `config-stores.js`, confirmed again by `config-error-codes.js`, `config-model-registry.js` and `config-persona-models.js`):
+- Add a boolean key to the `configDirty` literal in `config.js` (mutate only, per Rule 1 above).
+- Add a `{ key, label, render, leave, reset }` descriptor to `CONFIG_TABS` in `config.js`. `render` populates `#config-tab-content`; `leave(discarded)` runs when the tab-bar handler switches away (after the dirty-guard `confirm()`, if it fired); `reset()` runs with no arguments from `renderConfigPage()` on every fresh page load. Choose between the two `leave` shapes GUI constraint §25 documents: always-reset (`leave`/`reset` both the same function, as Stores/Error Codes do) when `render`'s arguments never go stale across visits, or reset-only-on-discard (`mrLeaveTab`/`pmLeaveTab`'s shape) when a successful save updates the tab's own in-memory snapshot without `config.js` refreshing `render`'s arguments.
+- `leave` must always invalidate in-flight requests (increment the module's visit token) regardless of `discarded`, even in the always-reset case — this is what makes point 5 below (visit-token guarding) actually take effect on every tab switch, not only on a discard.
+- Hold a monotonic visit token (e.g. `mrVisit`, `pmVisit`, `csVisit`, `ecVisit`), incremented by the tab's `leave`/`reset` function. Every async call site (lazy load, save, test, rebuild) captures the token before its request and returns early — in both `.then` and `.catch` — when it no longer matches, so a response that settles after the user left cannot write into the shared `#config-tab-content` or repopulate state that was just cleared. A flag that spans visits by design (`ecSaveInFlight`, `pmIsBuilding`) is still cleared by its own callback before the stale check.
+- If the tab's data is not part of the page's initial load, fetch it lazily on first activation inside the tab's own render-entry function rather than adding it to `renderConfig()`'s `Promise.all` — `config-error-codes.js`'s `ecRenderTab()` is the reference implementation.
+- No separate dispatcher branch or tab-bar cleanup branch is needed — `renderConfigTabContent()` and the tab-bar click handler both operate purely off `CONFIG_TABS` via `configFindTab()`, so adding the descriptor is sufficient.
+
+The tab-bar unsaved-changes guard in `config.js` reads `configDirty[configActiveTab]` on every tab-switch click and shows a `confirm()` dialog when the value is `true`. On discard, it resets the key, sets `discarded = true`, and calls the left tab's `leave(discarded)` via its `CONFIG_TABS` descriptor — which runs unconditionally either way, so a tab switch away from a never-dirty tab still invalidates its visit token and (for always-reset tabs) clears its cached state.
 
 **Dependencies:** `API`, `UI`, `escapeHtml`, `showLoading`, `showError` (all globals, loaded before `config.js`).
 

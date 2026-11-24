@@ -21,6 +21,11 @@
 - [Test Helper Infrastructure Mandate](#test-helper-infrastructure-mandate)
 - [Mock `McpServer` Intercept Pattern](#mock-mcpserver-intercept-pattern-for-tool-metadata-tests)
 - [Acceptance Criteria Field-Name Verification](#acceptance-criteria-field-name-verification)
+- [Path-Traversal Acceptance Criteria Use 404 Wording](#path-traversal-acceptance-criteria-use-404-wording)
+- [New Error-Code Providers Must Pass `describeProviderContract`](#new-error-code-providers-must-pass-describeprovidercontract)
+- [Network-Backed Providers Never Call a Real Service](#network-backed-providers-never-call-a-real-service)
+- [Slow Lock-Contention Tests Use the `withLock` Fast-Lock Test Seam](#slow-lock-contention-tests-use-the-withlock-fast-lock-test-seam)
+- [Fire-and-Forget Self-Heal Writes Use the `pendingSelfHeals` Test Seam](#fire-and-forget-self-heal-writes-use-the-pendingselfheals-test-seam)
 
 ---
 
@@ -245,3 +250,75 @@ describe('pipeline schemas', () => {
 Do **not** write `"400 VALIDATION_ERROR"` — the guard deliberately returns `NOT_FOUND` (not `VALIDATION_ERROR`) to mask traversal detection.
 
 **Reference:** See [error-ledger.md](../../../../docs/history/error-ledger.md) — deviation recorded in the 2026-03-04 project-reset rework synthesis. The guard itself is documented in the [GUI constraints](../../../gui/docs/agents/project-manifest/constraints.md).
+
+---
+
+### New Error-Code Providers Must Pass `describeProviderContract`
+
+**Rule:** A provider's test file calls `describeProviderContract(name, makeProvider, makeCtx)` (`tests/error-codes/provider-contract.ts`) alongside its own provider-specific tests, for every built-in provider and every reference-example plugin shipped in the repository (e.g. `docs/examples/error-code-provider-example/`). `makeProvider` must return a fresh provider instance per call, and `makeCtx` must accept an optional `Partial<ProviderContext>` override (used by the suite's abort-handling check to supply an already-aborted `signal`).
+
+**Rationale:** The shared suite checks only what every `ErrorCodeProvider` must hold regardless of backend — a well-formed `settings` array, a positive-integer result, a monotonically increasing sequence, tolerance of unknown request fields, and settling instead of hanging on an aborted signal. Writing these checks once, and running them against every provider, catches a contract violation the moment a provider is added or changed, rather than only when the allocator's own tests happen to exercise that provider.
+
+**Anti-pattern:** A new provider's test file re-implementing "returns a positive integer" and "increases monotonically" assertions inline instead of calling `describeProviderContract`.
+
+**Correct pattern (see `file-provider.test.ts`):**
+```typescript
+describeProviderContract(
+  'file provider',
+  () => fileProvider,
+  (overrides) => makeCtx(dataDir, overrides)
+);
+```
+
+---
+
+### Network-Backed Providers Never Call a Real Service
+
+**Rule:** A provider that performs I/O over the network (e.g. the `errorcode-incrementor` provider) stubs the global `fetch` with `vi.stubGlobal('fetch', ...)` in every test, including the `describeProviderContract` run against it. No test file under `tests/error-codes/` ever makes a real HTTP request. `tests/error-codes/no-private-config.test.ts` additionally proves that no private host, counter name or credential string for the user's own service ships anywhere under `mcp-server/src`, `mcp-server/gui`, `mcp-server/docs` or `mcp-server/tests` — only the setting *descriptors* (with no `default`) are allowed to exist in the repository.
+
+**Rationale:** The Errorcode Incrementor service is reachable only with the user's own private host and credentials, which never belong in a public repository or in CI. Stubbing `fetch` keeps the suite deterministic, fast, and independent of any real backend being reachable, while the no-private-config test is a standing guard against a credential accidentally being pasted into source, docs, or a test fixture.
+
+**Correct pattern (see `errorcode-incrementor-provider.test.ts`):**
+```typescript
+vi.stubGlobal('fetch', vi.fn(async () => new Response('52001', { status: 200 })));
+```
+
+---
+
+### Slow Lock-Contention Tests Use the `withLock` Fast-Lock Test Seam
+
+**Rule:** A test that deliberately contends `withLock` (parallel calls against the same `storageDir`, or a cross-process worker fixture) installs the fast retry policy in `beforeEach` via `__setLockRetryForTesting({ minTimeout, maxTimeout })` (`src/storage/file-lock.ts`) and restores it in `afterEach` via `__resetLockOptionsForTesting()`. Cross-process worker fixtures (`tests/error-codes/fixtures/concurrent-allocation-worker.ts`, `run-workers.ts`) pass `fastLock: true` (or the `--fast-lock` CLI flag) so the spawned process installs the same policy — the in-process setter alone never reaches a separate worker process. Do not raise a test's own timeout as a substitute for installing the seam; lower or remove a previously-raised timeout once the seam makes the default sufficient (cross-process tests keep an explicit, lower timeout for process-spawn variance, not for lock backoff).
+
+**Rationale:** Contended `withLock` acquisitions pay the production retry/backoff schedule (`DEFAULT_LOCK_OPTIONS`, derived from a 10s stale timeout) by default, costing ~350–850 ms per acquisition in a test. The seam is an in-process setter (plus a worker-process CLI flag), never an environment variable read by `file-lock.ts` itself, so a stray environment variable in production can never weaken real locking. `withLock`'s default behaviour is pinned by characterization tests in `tests/storage/file-lock.test.ts` before any test adopts the seam, since `withLock` is legacy code with no dedicated prior test file.
+
+**Correct pattern (see `tests/error-codes/temporary-codes.test.ts`, `file-provider.test.ts`, `config-store.test.ts`):**
+```typescript
+beforeEach(() => {
+  __setLockRetryForTesting({ minTimeout: 5, maxTimeout: 25 });
+});
+
+afterEach(() => {
+  __resetLockOptionsForTesting();
+});
+
+// cross-process worker:
+await runWorkers(workerPath, args, { fastLock: true });
+```
+
+---
+
+### Fire-and-Forget Self-Heal Writes Use the `pendingSelfHeals` Test Seam
+
+**Rule:** A test whose `afterEach` removes a temp directory that a fire-and-forget self-heal write may still be targeting — the pattern used by `handleGetProject`'s `.meta.json` cache-refresh write in `gui/api.ts` — awaits `__awaitPendingSelfHealsForTesting()` before the `rm`, instead of a fixed-duration `setTimeout` sleep. Do not reintroduce a sleep to "wait for the write to land"; a sleep is both slower than necessary and timing-dependent (a slow CI runner can still race it), which is exactly the `ENOTEMPTY` teardown race this seam replaced.
+
+**Rationale:** `handleGetProject` never awaits its own self-heal write — doing so would add lock latency to every production project-detail request. Instead, each write's promise is tracked in a module-level `pendingSelfHeals: Set<Promise<void>>` (added on start, removed in `finally` regardless of outcome, so the set never grows unbounded) and `__awaitPendingSelfHealsForTesting()` resolves once every currently-tracked write has settled. This gives tests a deterministic hook without changing production's fire-and-forget behaviour.
+
+**Correct pattern (see `tests/gui/api.test.ts`, `tests/gui/multi-store-api.test.ts`):**
+```typescript
+afterEach(async () => {
+  await __awaitPendingSelfHealsForTesting(); // gui/api.ts
+  await rm(tempDir, { recursive: true, force: true });
+});
+```
+
+A 5 ms sleep kept elsewhere in the same test file for an unrelated reason (e.g. forcing timestamp ordering between an archive and an unarchive) is not part of this seam and should stay, with a comment stating why it is there.

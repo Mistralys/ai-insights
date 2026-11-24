@@ -4,7 +4,8 @@ import { LedgerStore } from '../storage/ledger-store.js';
 import type { RootIndex } from '../schema/root-index.js';
 import type { WorkPackageDetail } from '../schema/work-package.js';
 import { resolveProjectPath } from '../utils/project-resolver.js';
-import { AGENT_ROLES, READY_STATUS_FOR_ROLE, HANDOFF_STATUS_ROLE, AGENT_NAMES, type AgentRole } from '../utils/constants.js';
+import { AGENT_ROLES, READY_STATUS_FOR_ROLE, HANDOFF_STATUS_ROLE, type AgentRole } from '../utils/constants.js';
+import { getAgentNames } from '../utils/name-mapping.js';
 import { isRegistryLoaded, getAgentHandle, getAgentId } from '../utils/agent-registry.js';
 import { now } from '../utils/timestamp.js';
 import {
@@ -224,7 +225,7 @@ export async function buildHandoffResponse(
             last_updated: now(),
           });
           const agentId = nextAgent ? getAgentId(nextAgent) : null;
-          const agentNames = nextAgent ? AGENT_NAMES[nextAgent as AgentRole] : null;
+          const agentNames = nextAgent ? getAgentNames()[nextAgent as AgentRole] : null;
           payload.auto_handoff = {
             agent_name: agentName,
             ...(agentId !== null ? { agent_id: agentId } : {}),

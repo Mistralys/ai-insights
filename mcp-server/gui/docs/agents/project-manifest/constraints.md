@@ -29,6 +29,7 @@
 - [18. CSS Class Derivation From API Values](#18-css-class-derivation-from-api-values-is-only-safe-for-zod-enum-validated-fields)
 - [19. JSDoc Closure-Dependency Documentation](#19-jsdoc-closure-dependency-documentation-for-gui-helpers)
 - [20. API Client `@throws` JSDoc](#20-api-client-methods-that-reject-on-server-error-must-carry-throws-jsdoc)
+- [25. Config Tab Modules](#25-config-tab-modules)
 
 **Backend**
 
@@ -188,6 +189,18 @@ Views must:
 - Ambiguous slug resolutions are downgraded to NOT_FOUND (cross-namespace existence leak prevention).
 - Malformed `.meta.json` files log to stderr but return NOT_FOUND to clients.
 - Error responses never include internal paths or stack traces.
+- A Zod validation failure's rendered `message` (`describeZodIssues()`, `src/gui/errors.ts`) names the invalid field **path** only, never the value that failed validation — including for the three Zod issue codes whose default message would otherwise echo the received value. `ApiError.details` — the raw Zod issues, kept for tests and logs only — is never serialized onto the wire by `gui/server.ts`'s `sendError()`; the response body is always `{ error: { code, message } }`.
+- **Deliberate, documented exception:** `GET /api/error-codes/providers` returns a plugin provider's file/folder path and the scanned plugin directory path (`gui/api-error-codes.ts` → `ProviderListItem.path`, `plugin_dir`). This is not an oversight — it is justified by `requireLoopbackRequest` (§7, "Request-Level Guards" below) gating every error-code route, and the GUI's Error Codes tab needs the path to let the user locate a misbehaving plugin on disk. Do not flag this as an information-hiding violation in review; do not extend the exception to any other route without updating this entry.
+
+### Request-Level Guards — Loopback-Only, JSON-Only, Fail-Closed Secret Merge
+
+The error-code provider routes (`/api/error-codes/*`, `gui/api-error-codes.ts`) reach third-party plugin code and the user's own stored secrets, over a server that binds every network interface (`server.listen(port, …)` passes no host — see Known Limitations §24) and serves no authentication. Three rules apply, together, to every route in this domain:
+
+1. **Loopback-only.** Every route carries the `requireLoopbackRequest` guard (`gui/route-guards.ts`, run by `dispatchRoute` via `Route.guards` — §9). It checks three things, in order: `req.socket.remoteAddress` must itself be loopback (`127.0.0.0/8`, `::1`, or the `::ffff:`-mapped IPv4 form) — this is the primary, non-spoofable gate, since a client cannot forge which socket the OS handed the server; then `Host` must be a loopback hostname; then, when present, `Origin` must be a loopback hostname at the same port. Any failure is `ApiError('FORBIDDEN')`. The `remoteAddress` check stops a direct, non-browser LAN/network client (the GUI binds every interface, so `Host`/`Origin` alone are fully attacker-controlled on such a client); the `Host`/`Origin` checks stop a hostile web page's cross-origin `fetch` from a browser on the *same* machine, whose `remoteAddress` is genuinely loopback. Neither layer alone covers both attacker classes, and the response-only `Access-Control-Allow-Origin` header does nothing to stop either.
+2. **JSON-only.** The two body-carrying routes (`PUT /api/error-codes/config`, `POST /api/error-codes/test`) additionally carry `requireJsonContentType`, rejecting a non-`application/json` body with `ApiError('UNSUPPORTED_MEDIA_TYPE')` (HTTP 415). Pair with `requireLoopbackRequest`, never as a substitute for it — a `Content-Type` check alone does not stop a non-browser client, which is not obligated to send a honest one.
+3. **Fail-closed secret merge.** `POST /api/error-codes/test` is the one route in the server that combines a provider's stored secrets with client-supplied settings (`mergeSettingsForTest`, `src/error-codes/settings-schema.ts`). Stored secrets are merged into the tested settings **only when every non-secret field equals its stored value** — any other difference tests the incoming settings only (including any incoming secret), so a stored secret for one destination is never tested against a changed one.
+
+**Anti-pattern:** adding a new error-code route without `requireLoopbackRequest`, or a `PUT`/`POST` one without `requireJsonContentType`, or implementing a settings merge for any future route that does not follow the fail-closed rule above.
 
 ### Security Headers
 
@@ -209,7 +222,7 @@ All responses include:
 
 ## 9. Route Dispatch Ordering and Sub-Builder Composition
 
-Routes in `server.ts` are declared in `buildRoutes()` and matched in declaration order by `dispatchRoute()`. `buildRoutes()` delegates to non-exported domain sub-builders — `buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildStoreRoutes`, `buildProjectRoutes` — composed via spread. When adding a route, add it to the appropriate sub-builder; the spread ordering in `buildRoutes()` must not be changed, since it is what preserves the section ordering below. Each sub-builder receives only the closure variables its handlers require. The table is organized into three sections:
+Routes in `server.ts` are declared in `buildRoutes()` and matched in declaration order by `dispatchRoute()`. `buildRoutes()` delegates to non-exported domain sub-builders — `buildConfigRoutes`, `buildOrchestratorRoutes`, `buildRepoRoutes`, `buildKnowledgeRoutes`, `buildModelRoutes`, `buildStoreRoutes`, `buildErrorCodeRoutes`, `buildProjectRoutes` — composed via spread. When adding a route, add it to the appropriate sub-builder; the spread ordering in `buildRoutes()` must not be changed, since it is what preserves the section ordering below. Each sub-builder receives only the closure variables its handlers require. The table is organized into three sections:
 
 - **Section A** — Body-parsing routes (`PUT`, `PATCH`, `POST`). These routes use `readJsonBody()` and have no `noBody` flag.
 - **Section B** — Keyword-specific body-free routes (`noBody: true`). Both active namespaced (`/:repo/:slug/keyword`) and deprecated flat (`/:slug/keyword`) variants live here. **Section B MUST precede Section C** — this is a load-bearing ordering constraint, not cosmetic. A Section C catch-all regex would shadow keyword-specific routes if declared first.
@@ -221,6 +234,7 @@ When adding new routes:
 - All parameterised routes must use RegExp with **named capture groups** (e.g., `(?<slug>[^/]+)`) — positional groups are not permitted.
 - Namespaced routes (`/:repo/:slug/...`) and legacy flat routes (`/:slug/...`) coexist within the same section — both are equally matched by `dispatchRoute()`.
 - Route handlers conform to the `Route` interface defined in `server.ts`. `Route.method` is typed as the `HttpMethod` union (`'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'`) — not `string` — giving compile-time safety for route method values.
+- A route may declare `guards?: readonly RouteGuard[]` (`RouteGuard = (req, port) => void`, `gui/route-guards.ts`). `dispatchRoute` runs them in array order after the route matches and before `readJsonBody`; a guard throws `ApiError` to reject. A route with no `guards` is unaffected — this field is purely additive.
 
 ---
 
@@ -256,6 +270,7 @@ Legacy non-namespaced routes (e.g., `/api/projects/:slug`) are retained for back
 - Use `escapeHtml()` for ALL user-provided text to prevent XSS.
 - Never use `innerHTML` with unescaped user data.
 - DOM event listeners (for buttons, forms) are attached AFTER innerHTML is set, using `querySelector` / `getElementById`.
+- **Deliberate, documented exception:** `stale-check.js` and `setup-notices.js` build their banners with `document.createElement`/`textContent` instead of a concatenated HTML string. Both render server-supplied strings (version numbers, setup-notice titles/messages, build-failure output) directly into a persistent, route-change-surviving DOM region outside any view's `innerHTML` assignment — `escapeHtml()` + string concatenation would work just as safely, but DOM-building makes "never interpreted as markup" structurally true rather than reliant on remembering the escape call at every call site. Do not flag this as a convention violation in review; do not extend the exception to any view module without updating this entry.
 
 ---
 
@@ -403,6 +418,7 @@ Each API domain owns a dedicated handler module imported by `server.ts`. No hand
 | `gui/api-repos.ts` | `/api/repos*` handlers, `RepoCreateBodySchema`, `RepoUpdateBodySchema`, `RepoListItem`, `assertNoFolderNameConflicts` |
 | `gui/api-stores.ts` | `/api/stores/*` handlers, their Zod body schemas, `StoreListItem` |
 | `gui/api-models.ts` | Model registry and persona-assignment handlers |
+| `gui/api-error-codes.ts` | `/api/error-codes/*` handlers, `PutErrorCodeConfigBodySchema`, `TestErrorCodeProviderBodySchema`, `ProviderListItem`, `ErrorCodeConfigResponse`, `TestConnectionResponse` |
 
 **Rationale:** `gui/api.ts` had grown into a maintenance liability. Extracting each domain into its own module isolates ownership and prevents drift back into `api.ts`. Each extracted module re-defines `validationError` locally (importing `ApiError` directly) rather than re-exporting it from `api.ts`.
 
@@ -492,4 +508,38 @@ node scripts/run-gui.js   # collides with the LIVE instance on port 3420
 | CORS locked to localhost | Cannot access from remote machines without modification. |
 | Queue file locking gap | TypeScript uses atomic rename; Python uses `.run-queue.lock`. Concurrent writes could race (low risk). |
 | No authentication | Local development tool; assumes trusted network. |
+| GUI binds every network interface | `server.listen(port, …)` in `gui/server.ts` passes no host, so the server accepts connections on any interface, not just loopback — it relies on the error-code routes' own `requireLoopbackRequest` guard (§7) rather than on the socket binding itself. Binding to `127.0.0.1` was rejected (see the error-code-generator plan's "Rejected Approaches") because it would change every existing route's reachability, outside that plan's blast radius. |
 | Markdown rendered without HTML sanitization | All markdown rendering (`work-package.js`, `project-detail-dialogues.js`, plan/synthesis views) passes content through `marked.parse()` without DOMPurify or equivalent. Acceptable because all rendered content is server-authored by MCP tools from agent pipelines. If the system ever accepts markdown from untrusted sources (user-submitted descriptions, external imports), a sanitization step must be added before rendering. |
+
+---
+
+## 25. Config Tab Modules
+
+The Configuration view (`views/config.js`) is a tab coordinator with no tabs of its own logic baked in beyond General — every other tab is a companion module loaded before `config.js` (see `index.html`'s script order). `config.js` holds a `CONFIG_TABS` array that is the single source of truth for which tabs exist and how to render, leave and reset each one; it is the only place tab buttons, tab-content dispatch and cross-module cleanup are defined. `config.js` never reads or writes another module's `cs*`/`mr*`/`pm*`/`ec*` fields directly — only through a descriptor's three functions (see below).
+
+**Known tab modules — `CONFIG_TABS` descriptors:**
+
+| Tab key | Module | Dirty tracking | `leave`/`reset` functions |
+|---------|--------|-----------------|---------------------------|
+| `general` | `config.js` itself | `configDirty.general` | No-op (General has no cached state to release) |
+| `stores` | `config-stores.js` | Always `false` — immediate-write pattern, no batch save | `leave`/`reset` both map to `csResetState()` — always resets unconditionally |
+| `personaModels` | `config-persona-models.js` | `configDirty.personaModels` | `leave: pmLeaveTab(discarded)` (resets only when `discarded`), `reset: pmResetState()` (always resets, calls `pmLeaveTab(true)`) |
+| `modelRegistry` | `config-model-registry.js` | `configDirty.modelRegistry` | `leave: mrLeaveTab(discarded)` (resets only when `discarded`), `reset: mrResetState()` (always resets, calls `mrLeaveTab(true)`) |
+| `errorCodes` | `config-error-codes.js` | `configDirty.errorCodes` | `leave`/`reset` both map to `ecResetState()` — always resets unconditionally |
+
+Each descriptor is `{ key, label, render, leave, reset }`. `render(config, models, personas, assignments, stores)` populates `#config-tab-content` and wires its events (a tab ignores arguments it does not need); `leave(discarded)` runs when the tab-bar handler is about to switch away from this tab, after its `confirm()` guard (if the tab was dirty) has already run; `reset()` runs with no arguments from `renderConfigPage()` on every fresh page load. `configFindTab(key)` looks up a descriptor by key.
+
+**Two `leave` semantics, by design:**
+
+- **Always-reset** (Stores, Error Codes): these tabs' `render` arguments are not meaningfully stale across visits, so `leave` and `reset` are the same function and both unconditionally drop cached state.
+- **Reset-only-on-discard** (Model Registry, Persona Models): these tabs' `render` arguments (`models`, `personas`, `assignments`) are *not* refreshed by `config.js` after a save — only the tab's own save handler updates its in-memory snapshot. Resetting unconditionally on every leave would re-initialise from the stale page-load arguments on return, discarding a successful save's effect. `leave(discarded)` therefore resets module state (and the visit-spanning edit/collapse state) only when `discarded` is `true`; `reset()` — used for a full page reload, where fresh server data is always about to replace whatever state existed — always resets by calling `leave(true)`.
+
+**The integration points every tab module implements**, established by `config-stores.js` and confirmed again by `config-error-codes.js`, `config-model-registry.js` and `config-persona-models.js` (full detail: `api-surface.md`'s `configDirty` cross-module contract and the "Integration points a future tab module must follow" list under `config.js` — Internal Functions):
+
+1. **`configDirty`** — add a boolean key to the literal in `config.js`; mutate it only from the owning tab module (never reassign the object — see §3's Global Namespace Pattern for why).
+2. **`CONFIG_TABS` descriptor** — add `{ key, label, render, leave, reset }` to the array in `config.js`. `reset()` is called by `renderConfigPage()` on every fresh page load; pick the always-reset or reset-only-on-discard shape above depending on whether the tab's `render` arguments go stale after a save.
+3. **Cleanup on tab switch** — the tab-bar click handler calls the left tab's `leave(discarded)` unconditionally, after the unsaved-changes `confirm()` guard (if it fired) has already decided `discarded`. This must run regardless of whether the guard's `confirm()` fired, so a user who leaves and returns to the same tab never accumulates duplicate event handling. An always-reset tab (`config-stores.js`'s `csClickHandler` guard, `config-error-codes.js`'s `ecCleanup()`) ignores the `discarded` argument; a reset-only-on-discard tab (`mrLeaveTab`, `pmLeaveTab`) branches on it.
+4. **Lazy load** — a tab whose data is not part of the Configuration page's initial load fetches it itself, on first activation, inside its own render-entry function — never by adding it to `renderConfig()`'s `Promise.all`. `config-error-codes.js`'s `ecRenderTab()` is the reference implementation: it checks its own cached state (`ecProviders === null`) before deciding whether to fetch.
+5. **Guard async callbacks with a visit token** — a tab module that fires requests (lazy load, save, test, rebuild) holds a monotonic token incremented by its `leave`/`reset` function (point 3). Every request callback captures the token before the request and returns early — in both `.then` and `.catch` — when it no longer matches, so a response that settles after the user left cannot write into the shared `#config-tab-content` or repopulate state that was just cleared. A flag that spans visits by design (`ecSaveInFlight`, `pmIsBuilding`) is still cleared by its own callback before the stale check, even when the response is stale. Reference implementations: `config-error-codes.js` (`ecVisit`), `config-stores.js` (`csVisit`), `config-model-registry.js` (`mrVisit`), `config-persona-models.js` (`pmVisit`), and `strategy.js`'s `refreshSeq`.
+
+**Exception — calls to global GUI-shell state are never visit-gated:** `pmDoRebuild()`'s success callback calls `window.SetupNotices.refresh()` (guarded by the module's presence) immediately, *before* its own `pmVisit` staleness check — unlike every other statement in that callback. This is deliberate: `SetupNotices`'s `#setup-notices` banner is global GUI-shell state, not Persona-Models-tab state, so a stale `pmVisit` (the user left the tab) must not suppress it. Do not move this call below the `pmVisit` check, and do not generalise the pattern to any state inside `#config-tab-content` — only a call into a module outside the tab's own DOM subtree qualifies for this exception. See `data-flows.md` §17 for the full `SetupNotices` lifecycle.

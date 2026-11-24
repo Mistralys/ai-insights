@@ -26,6 +26,7 @@ import { z } from 'zod';
 import { WORKSPACE_ROOT } from '../utils/ledger-root.js';
 import { atomicWriteJson } from '../storage/atomic-writer.js';
 import { ApiError } from './errors.js';
+import { hasErrorCode } from '../utils/node-errors.js';
 
 // ---------------------------------------------------------------------------
 // Schemas & Types
@@ -84,10 +85,6 @@ function assignmentsJsonPath(): string {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
-function isNodeError(err: unknown): err is NodeJS.ErrnoException {
-  return err instanceof Error && 'code' in err;
-}
-
 async function readJsonFile(filePath: string): Promise<unknown> {
   const raw = await readFile(filePath, 'utf-8');
   return JSON.parse(raw) as unknown;
@@ -111,7 +108,7 @@ export async function readModels(): Promise<ModelEntry[]> {
   try {
     raw = await readFile(localJsonPath(), 'utf-8');
   } catch (err) {
-    if (isNodeError(err) && err.code === 'ENOENT') {
+    if (hasErrorCode(err, 'ENOENT')) {
       return await _initializeLocalFromDefault();
     }
     process.stderr.write(`[server] readModels READ_ERROR: ${String(err)}\n`);
@@ -219,7 +216,7 @@ export async function writeModels(models: ModelEntry[]): Promise<WriteModelsResu
     // not found, permission denied) — these mean there is nothing to protect.
     // Any ApiError from a corrupt local.json (PARSE_ERROR, VALIDATION_ERROR) is
     // re-thrown so the caller cannot inadvertently bypass the guard on bad data.
-    if (!(err instanceof ApiError && err.code === 'READ_ERROR') && !(isNodeError(err) && err.code === 'ENOENT')) {
+    if (!(err instanceof ApiError && err.code === 'READ_ERROR') && !hasErrorCode(err, 'ENOENT')) {
       throw err;
     }
   }
@@ -262,7 +259,7 @@ export async function readAssignments(): Promise<ModelAssignments> {
   try {
     raw = await readFile(assignmentsJsonPath(), 'utf-8');
   } catch (err) {
-    if (isNodeError(err) && err.code === 'ENOENT') {
+    if (hasErrorCode(err, 'ENOENT')) {
       return { default_model_uuid: undefined, persona_models: {} };
     }
     process.stderr.write(`[server] readAssignments READ_ERROR: ${String(err)}\n`);

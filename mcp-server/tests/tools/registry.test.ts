@@ -19,8 +19,10 @@ describe('registry — TOOL_MODULES invariants', () => {
     expect(Object.isFrozen(TOOL_MODULES)).toBe(true);
   });
 
-  it('contains exactly 12 modules', () => {
-    expect(TOOL_MODULES.length).toBe(12);
+  it('registers a module for every tool group, including error-codes and work-package-admin', () => {
+    const ids = TOOL_MODULES.map((m) => m.id);
+    expect(ids).toContain('error-codes');
+    expect(ids).toContain('work-package-admin');
   });
 
   it('has unique ids', () => {

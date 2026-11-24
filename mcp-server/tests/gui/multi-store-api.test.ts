@@ -17,6 +17,7 @@ import {
   handleListWorkPackages,
   handleArchiveProject,
   ApiError,
+  __awaitPendingSelfHealsForTesting,
 } from '../../gui/api.js';
 import { setStoreContext } from '../../src/storage/store-context.js';
 import { StoreRouter } from '../../src/storage/store-router.js';
@@ -112,6 +113,11 @@ beforeEach(async () => {
 
 afterEach(async () => {
   restoreLegacyContext();
+  // Wait for any in-flight fire-and-forget self-heal write (handleGetProject,
+  // gui/api.ts) to settle before removing the temp directory — otherwise the
+  // write can still be in progress when rm() runs, racing it and surfacing as
+  // an ENOTEMPTY error.
+  await __awaitPendingSelfHealsForTesting();
   await rm(tempDir, { recursive: true, force: true });
 });
 

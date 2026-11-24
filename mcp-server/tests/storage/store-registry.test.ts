@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, writeFile, readFile } from 'fs/promises';
-import { join } from 'path';
+import { join, sep } from 'path';
 import { homedir, tmpdir } from 'os';
 import {
   resolveStoresConfigPath,
@@ -8,6 +8,9 @@ import {
   saveStoresConfig,
   expandStorePath,
   resolveGuiConfigPath,
+  resolveErrorCodesDir,
+  resolveErrorCodePluginDir,
+  resolveErrorCodeProviderDataDir,
 } from '../../src/storage/store-registry.js';
 import type { StoresConfig } from '../../src/schema/store-config.js';
 
@@ -80,6 +83,46 @@ describe('store-registry storage module', () => {
 
     it('throws for ~username/path syntax', () => {
       expect(() => expandStorePath('~bob/data')).toThrow('~username syntax which is not supported');
+    });
+  });
+
+  // ─── resolveErrorCodesDir ────────────────────────────────────────────
+
+  describe('resolveErrorCodesDir', () => {
+    it('resolves to ~/.ai-insights/error-codes/', () => {
+      const result = resolveErrorCodesDir();
+      expect(result).toBe(join(homedir(), '.ai-insights', 'error-codes'));
+    });
+
+    it('starts with the user home directory', () => {
+      expect(resolveErrorCodesDir().startsWith(homedir())).toBe(true);
+    });
+  });
+
+  // ─── resolveErrorCodePluginDir ──────────────────────────────────────
+
+  describe('resolveErrorCodePluginDir', () => {
+    it('resolves to ~/.ai-insights/plugins/error-codes/', () => {
+      const result = resolveErrorCodePluginDir();
+      expect(result).toBe(join(homedir(), '.ai-insights', 'plugins', 'error-codes'));
+    });
+
+    it('starts with the user home directory', () => {
+      expect(resolveErrorCodePluginDir().startsWith(homedir())).toBe(true);
+    });
+  });
+
+  // ─── resolveErrorCodeProviderDataDir ─────────────────────────────────
+
+  describe('resolveErrorCodeProviderDataDir', () => {
+    it("equals join(resolveErrorCodesDir(), 'data', providerId)", () => {
+      const result = resolveErrorCodeProviderDataDir('file');
+      expect(result).toBe(join(resolveErrorCodesDir(), 'data', 'file'));
+    });
+
+    it('uses the platform path separator, not a hard-coded forward slash', () => {
+      const result = resolveErrorCodeProviderDataDir('some-provider');
+      expect(result).toBe(`${resolveErrorCodesDir()}${sep}data${sep}some-provider`);
     });
   });
 

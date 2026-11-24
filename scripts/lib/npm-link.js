@@ -21,6 +21,8 @@ import { spawnSync } from 'child_process';
 const WORKSPACE_ROOT = path.resolve(import.meta.dirname, '..', '..');
 const IS_WIN          = process.platform === 'win32';
 const NPM_BIN          = IS_WIN ? 'npm.cmd' : 'npm';
+// Node refuses to spawn .cmd files without a shell on Windows (EINVAL).
+const USE_SHELL        = IS_WIN;
 
 /**
  * Read the `name` field from a package.json, defaulting to the workspace root.
@@ -52,7 +54,7 @@ export function isCliLinked({ cwd = WORKSPACE_ROOT } = {}) {
   const result = spawnSync(NPM_BIN, ['ls', '-g', '--depth=0', name], {
     cwd,
     encoding: 'utf8',
-    shell: false,
+    shell: USE_SHELL,
   });
   return result.status === 0;
 }
@@ -67,9 +69,10 @@ export function linkCli({ cwd = WORKSPACE_ROOT, log } = {}) {
   const result = spawnSync(NPM_BIN, ['link'], {
     cwd,
     encoding: 'utf8',
-    shell: false,
+    shell: USE_SHELL,
   });
-  const output = `${result.stdout || ''}${result.stderr || ''}`.trim();
+  const spawnError = result.error ? `${result.error.code || 'spawn error'}: ${result.error.message}\n` : '';
+  const output = `${spawnError}${result.stdout || ''}${result.stderr || ''}`.trim();
   if (log && output) {
     log(output);
   }

@@ -115,6 +115,14 @@ Save the report under `/docs/agents/research/{YYYY-MM-DD}-{PROJECT_NAME}.md` (e.
 
 ---
 
+{{> subagent-briefing}}
+
+{{#if target_claude_code}}
+{{> subagent-wait-claude-code}}
+
+{{/if}}
+---
+
 ## Core Rules
 
 ### Clarifying Questions

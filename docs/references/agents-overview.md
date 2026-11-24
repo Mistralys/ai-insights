@@ -3,7 +3,7 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-10-23
+> **Generated:** 2026-11-24
 > **Total Personas:** 44
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
@@ -66,7 +66,7 @@ Produce a clear, actionable, technically sound plan that fully describes how to 
 
 ---
 
-### Stage 2 — Project Manager (v3.12.0)
+### Stage 2 — Project Manager (v3.16.0)
 
 **Identity:** Technical Program Manager (TPM)
 
@@ -79,7 +79,7 @@ Split the provided plan into distinct work packages that can be implemented incr
 
 ---
 
-### Stage 3 — Developer (v3.19.0)
+### Stage 3 — Developer (v3.20.0)
 
 **Identity:** Staff Software Engineer
 
@@ -91,7 +91,7 @@ Dual role: (1) Implementation — take a structured Work Package and transform i
 
 ---
 
-### Stage 4 — QA (v3.10.1)
+### Stage 4 — QA (v3.10.3)
 
 **Identity:** SDET (Software Engineer in Test)
 
@@ -103,7 +103,7 @@ Be the final gatekeeper for code quality. Do not trust code just because it was 
 
 ---
 
-### Stage 5 — Security Auditor (v3.10.3)
+### Stage 5 — Security Auditor (v3.10.5)
 
 **Identity:** Security Auditor
 
@@ -115,7 +115,7 @@ Perform a focused security audit on the code produced by the implementation team
 
 ---
 
-### Stage 6 — Reviewer (v3.12.0)
+### Stage 6 — Reviewer (v3.12.2)
 
 **Identity:** Principal Systems Architect
 
@@ -127,7 +127,7 @@ Perform a rigorous Peer Review on the code produced by the Software Engineer. Lo
 
 ---
 
-### Stage 7 — Release Engineer (v3.9.0)
+### Stage 7 — Release Engineer (v3.11.2)
 
 **Identity:** Release Engineer
 
@@ -140,7 +140,7 @@ Curate the release for this work package. Version the artifact, update the chang
 
 ---
 
-### Stage 8 — Documentation (v3.11.0)
+### Stage 8 — Documentation (v3.13.2)
 
 **Identity:** Technical Writing Manager
 
@@ -153,7 +153,7 @@ Ensure the project documentation stays synchronized with the codebase. Do not wr
 
 ---
 
-### Stage 9 — Synthesis (v3.13.1)
+### Stage 9 — Synthesis (v3.15.2)
 
 **Identity:** Head of Operations (OPS)
 
@@ -168,7 +168,7 @@ Consolidate the results of the development cycle into a coherent Project Status 
 
 ## Standalone Personas
 
-### AGENTS.md Curator (v2.5.0)
+### AGENTS.md Curator (v2.7.2)
 
 **Identity:** Agent Operations (AgentOps) Architect
 
@@ -234,19 +234,19 @@ Survey third-party dependencies for security advisories, upstream abandonment an
 
 ---
 
-### Developer — Standalone (v1.17.0)
+### Developer — Standalone (v1.20.0)
 
 **Identity:** Staff Software Engineer
 
 Implement scoped plan documents without ledger workflow, including code insights and end-of-plan synthesis.
 
-- **Use When:** Implementing a plan document outside the ledger workflow (no MCP server needed)
+- **Use When:** Implementing a plan document outside the ledger workflow; MCP server optional — used only for error-code allocation
 - **Sub-agents:** Ledger Synthesis Maintainer
 - **Notes:** Works from a plan document directly instead of Work Packages; includes end-of-plan synthesis
 
 ---
 
-### Documentation — Standalone (v1.5.0)
+### Documentation — Standalone (v1.7.2)
 
 **Identity:** Technical Writing Manager
 
@@ -268,7 +268,7 @@ Analyze uncommitted changes and organize them into comprehensive, categorized co
 
 ---
 
-### Manifest Curator (v1.8.0)
+### Manifest Curator (v2.0.0)
 
 **Identity:** Technical Knowledge Architect
 
@@ -301,7 +301,7 @@ Create, audit, and maintain AI agent personas according to the Persona Design Gu
 
 ---
 
-### Plan Architect Reviewer (v2.3.4)
+### Plan Architect Reviewer (v2.5.2)
 
 **Identity:** Principal Software Architect
 
@@ -313,7 +313,7 @@ Decision-level architectural review of technical plans — weighs each design ch
 
 ---
 
-### Plan Auditor (v1.12.0)
+### Plan Auditor (v1.13.1)
 
 **Identity:** Senior Technical Plan Auditor
 
@@ -324,7 +324,7 @@ Audit technical plans for technical defects — hallucinated references, missing
 
 ---
 
-### Plan Refiner (v1.7.2)
+### Plan Refiner (v1.10.1)
 
 **Identity:** Plan Quality Director
 
@@ -346,7 +346,7 @@ Produce clear, actionable, technically sound plans from feature requests or task
 
 ---
 
-### README Curator (v1.8.0)
+### README Curator (v1.10.2)
 
 **Identity:** Developer Experience (DX) Storyteller
 
@@ -368,7 +368,7 @@ Curate, adapt, and compose recipes tailored to a home kitchen that values fresh,
 
 ---
 
-### Researcher (v1.3.3)
+### Researcher (v1.4.2)
 
 **Identity:** Senior Research Engineer & Solution Architect
 
@@ -388,7 +388,7 @@ Audit unit test coverage of specific codebase modules — identify untested path
 
 ---
 
-### Usage Scenarios Curator (v1.2.2)
+### Usage Scenarios Curator (v1.2.3)
 
 **Identity:** Product Usage Scenario Analyst
 
@@ -399,7 +399,7 @@ Generate human-editable user scenarios from a plan and verify deterministic scen
 
 ---
 
-### Web GUI Specialist (v1.7.5)
+### Web GUI Specialist (v1.10.0)
 
 **Identity:** Senior Web Interface Engineer and UX Systems Designer
 
@@ -421,7 +421,7 @@ Write bilingual WHATSNEW.xml release note entries from the developer changelog, 
 
 ---
 
-### Workspace Architect (v1.7.0)
+### Workspace Architect (v1.9.2)
 
 **Identity:** Workspace Infrastructure Architect
 
@@ -446,7 +446,7 @@ Mechanically initialize the project ledger: create all Work Package entries via 
 
 ---
 
-### Ledger Claude Coordinator (v3.0.1)
+### Ledger Claude Coordinator (v3.4.0)
 
 **Identity:** Technical Workflow Director
 
@@ -454,11 +454,11 @@ Coordinate the multi-stage agentic pipeline by consulting the central_pm ledger 
 
 - **Modes:** Interactive (default), Autonomous
 - **Use When:** Experimental — drives the ledger pipeline as the session-owning main agent under `claude --agent`, dispatching each stage the ledger names. Earlier failures came from the default Claude Code agent doing the routing; under test as of v2.0.0
-- **Sub-agents:** 2-project-manager, 3-developer, 4-qa, 5-security-auditor, 6-reviewer, 7-release-engineer, 8-documentation, 9-synthesis
+- **Sub-agents:** 2-project-manager, 3-developer, 4-qa, 5-security-auditor, 6-reviewer, 7-release-engineer, 8-documentation, 9-synthesis, Ledger Doctor
 
 ---
 
-### Ledger Dependency Sequencer (v1.5.0)
+### Ledger Dependency Sequencer (v1.5.1)
 
 **Identity:** Technical Program Manager — Dependency Analyst
 
@@ -522,7 +522,7 @@ Pre-flight checks, launch, and monitor an AI Insights orchestrator workflow run 
 
 ---
 
-### Ledger Pipeline Configurator (v1.4.0)
+### Ledger Pipeline Configurator (v1.4.1)
 
 **Identity:** Technical Program Manager — Pipeline Stage Analyst
 
@@ -543,7 +543,7 @@ Keep the ledger synthesis record of a completed project in step with its synthes
 
 ---
 
-### Ledger WP Decomposer (v1.10.0)
+### Ledger WP Decomposer (v1.10.1)
 
 **Identity:** Technical Program Manager — Work Package Analyst
 

@@ -6,13 +6,14 @@ import { mkdirSync } from 'fs';
 import { resolve } from 'path';
 import { SERVER_VERSION } from './utils/server-version.js';
 import { registerAllTools } from './tools/registry.js';
+import { initProviderRegistry, listProviderLoadErrors } from './error-codes/provider-registry.js';
 import { discoverAgents } from './utils/agent-registry.js';
 import { getVSCodeAgentsDir } from './utils/publish-locations.js';
 import { resolveLedgerRoot } from './utils/ledger-root.js';
 import { readConfigFromDisk, startConfigWatcher } from './gui/config.js';
 import { setMcpServer } from './utils/client-info.js';
 import { migrateToNamespacedLayout } from './storage/migrate-namespaced.js';
-import { loadStoresConfig, resolveGuiConfigPath } from './storage/store-registry.js';
+import { loadStoresConfig, resolveGuiConfigPath, resolveErrorCodePluginDir } from './storage/store-registry.js';
 import { StoreRouter } from './storage/store-router.js';
 import { MultiStoreManager } from './storage/multi-store-manager.js';
 import { setStoreContext } from './storage/store-context.js';
@@ -55,6 +56,18 @@ async function main(): Promise<void> {
 
   // Expose server instance for getClientInfo() accessor
   setMcpServer(server);
+
+  // Build the error-code provider registry (built-ins + third-party plugins
+  // from ~/.ai-insights/plugins/error-codes/) before any tool registration,
+  // so ledger_generate_error_code never races an empty registry. A plugin
+  // load failure is logged to stderr and otherwise ignored — it must never
+  // stop server startup.
+  await initProviderRegistry({ pluginDir: resolveErrorCodePluginDir() });
+  for (const loadError of listProviderLoadErrors()) {
+    process.stderr.write(
+      `[error-codes] Failed to load provider plugin from ${loadError.source}: ${loadError.message}\n`
+    );
+  }
 
   // Register tools. The registered tool names are recorded in registration
   // order so the startup log below can be derived from them directly —

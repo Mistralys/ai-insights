@@ -53,17 +53,6 @@ if [ "$SLIDES_CHANGED" -gt 0 ]; then
   fi
 fi
 
-# Warn if source files changed but .context/ was not updated — advisory only
-SRC_CHANGED=$(echo "$STAGED" | grep -cE '^(mcp-server/src/|orchestrator/src/|personas/|scripts/|shared/)' || true)
-CTX_CHANGED=$(echo "$STAGED" | grep -c '^\.context/' || true)
-
-if [ "$SRC_CHANGED" -gt 0 ] && [ "$CTX_CHANGED" -eq 0 ]; then
-  echo ""
-  echo "WARNING: Source files changed but .context/ was not updated."
-  echo "  Consider running: node scripts/cli.js build-maintain"
-  echo ""
-fi
-
 # Warn if a sub-project changelog changed without the root changelog
 SUB_CHANGED=0
 ROOT_CHANGED=0

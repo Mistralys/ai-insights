@@ -43,9 +43,10 @@ import { getPublishLocations } from './publish-locations.js';
 import { install as mcpGlobalInstall, dryRun as mcpGlobalDryRun, shimConfigExists } from './install-mcp-global.js';
 import { isCliLinked, linkCli } from './lib/npm-link.js';
 import { HEALTH_CHECKS, runChecks } from './lib/health-checks.js';
+import { isNameMappingPresent } from './lib/name-mapping.js';
 import { isMcpDistStale } from './lib/mcp-dist-freshness.js';
-import { runCtxGenerate } from './lib/ctx-generate.js';
 import { getOriginalCwd } from './lib/original-cwd.js';
+import { releaseStdinForChild } from './lib/stdin-handoff.js';
 import {
   storeInit,
   storeAdd,
@@ -211,7 +212,11 @@ const SETUP_COMPONENTS = [
       const outerLock = path.join(PERSONAS_DIR, 'package-lock.json');
       const innerLock = path.join(PERSONAS_DIR, 'node_modules', '.package-lock.json');
       if (!fs.existsSync(innerLock)) return false;
-      return fs.statSync(outerLock).mtimeMs <= fs.statSync(innerLock).mtimeMs;
+      if (fs.statSync(outerLock).mtimeMs > fs.statSync(innerLock).mtimeMs) return false;
+      // personas/name-mapping.json is a generated, untracked build artefact
+      // (see .gitignore) — a fresh clone or pull never carries it, so this
+      // component must be re-run until the build has produced it.
+      return isNameMappingPresent(PERSONAS_DIR);
     },
     run() {
       log('  Installing personas dependencies…', 'dim');
@@ -224,6 +229,7 @@ const SETUP_COMPONENTS = [
       return (r.status ?? 1) === 0;
     },
     validate() {
+      if (!isNameMappingPresent(PERSONAS_DIR)) return false;
       try {
         const dir = path.join(PERSONAS_DIR, 'ledger', 'vs-code');
         return fs.readdirSync(dir).some((f) => f.endsWith('.md'));
@@ -311,8 +317,8 @@ const SETUP_COMPONENTS = [
     detect: () => shimConfigExists(),
     run() {
       try {
-        mcpGlobalInstall({ log: (msg) => log(msg) });
-        return true;
+        const res = mcpGlobalInstall({ log: (msg) => log(msg), error: (msg) => log(msg, 'red') });
+        return res?.claudeCode !== 'failed';
       } catch (err) {
         log(`  \u2717 ${err.message}`, 'red');
         return false;
@@ -358,6 +364,9 @@ function cmdSyncPersonas(args) {
 }
 
 function cmdAgent(args) {
+  // The interactive picker in the child needs every keystroke; on Windows the
+  // menu's own stdin read would otherwise swallow them (see stdin-handoff.js).
+  releaseStdinForChild();
   const code = runScript('node', [path.join(SCRIPTS_DIR, 'launch-agent.js'), ...args], { cwd: getOriginalCwd() });
   if (code !== 0) process.exit(code);
 }
@@ -505,14 +514,8 @@ async function cmdBuildMaintain(args) {
   const buildArgs = args.includes('--suite') ? args : ['--suite', 'all', ...args];
   const buildCode = runScript('node', [path.join(SCRIPTS_DIR, 'build-personas.js'), ...buildArgs], { cwd: WORKSPACE_ROOT });
   if (buildCode !== 0) process.exit(buildCode);
-  const overviewCode = runScript('node', [path.join(SCRIPTS_DIR, 'generate-agents-overview.js')], { cwd: WORKSPACE_ROOT });
-  if (overviewCode !== 0) process.exit(overviewCode);
   const rolesCode = runScript('node', [path.join(SCRIPTS_DIR, 'check-known-roles.js')], { cwd: WORKSPACE_ROOT });
   if (rolesCode !== 0) process.exit(rolesCode);
-  // Always runs a plain generate here, regardless of any flags cmdBuildMaintain
-  // itself received (e.g. --suite) — those are build-personas.js's own flags,
-  // not ctx's, and ctx would reject them.
-  await cmdCtxGenerate([]);
 }
 
 function cmdOrchestrator(args) {
@@ -557,95 +560,6 @@ function cmdGeneratePersonaAudit(args) {
   if (code !== 0) process.exit(code);
 }
 
-/**
- * Thin caller around runCtxGenerate(): maps its structured result to this
- * CLI's message texts and exit codes. All filesystem safety (staging,
- * rename-based swap, --check comparison, crash recovery) lives in
- * scripts/lib/ctx-generate.js \u2014 see its module header for the rationale.
- */
-async function cmdCtxGenerate(args) {
-  const result = await runCtxGenerate({
-    workspaceRoot: WORKSPACE_ROOT,
-    args,
-    shell: IS_WIN,
-    normalizeFn: (stagingDir) => sh('node', [path.join(SCRIPTS_DIR, 'normalize-ctx-paths.js'), stagingDir], { cwd: WORKSPACE_ROOT }),
-  });
-
-  if (!result.ok) {
-    switch (result.reason) {
-      case 'owns-work-dir':
-        log(`\u2717 ctx-generate does not accept ${result.flag} \u2014 it controls ctx's output directory itself (via -w) to stage generation safely. .context/ was not touched.`, 'red');
-        process.exit(2);
-        return;
-      case 'ctx-missing':
-        log('\u2717 ctx binary not found on PATH. Install the context-hub/generator ctx CLI and retry. .context/ was not touched.', 'red');
-        process.exit(1);
-        return;
-      case 'ctx-failed':
-        log('\n\u2717 ctx generate exited with code ' + result.status + '. .context/ was not touched.', 'red');
-        process.exit(result.status ?? 1);
-        return;
-      case 'recovery-failed': {
-        log('\u2717 Could not clear leftover state from an interrupted prior run \u2014 nothing was generated:', 'red');
-        for (const failure of result.failures) {
-          log(`  ${failure.op} (${failure.path}): ${failure.error.message}`, 'dim');
-        }
-        process.exit(1);
-        return;
-      }
-      case 'swap-failed': {
-        const baseMsg = '\u2717 Failed to swap the generated context into place: ' + result.error.message + '.';
-        switch (result.previousOutput) {
-          case 'none':
-            log(baseMsg + ' No .context/ existed before this run \u2014 nothing to restore.', 'red');
-            break;
-          case 'untouched':
-            log(baseMsg + ' .context/ was not changed.', 'red');
-            break;
-          case 'restored':
-            log(baseMsg + ' .context/ was restored to its previous content.', 'red');
-            break;
-          case 'preserved-in-previous':
-            log(baseMsg + ' .context/ is missing \u2014 its previous content is preserved in .context.previous/ (restore error: ' + result.restoreError.message + '). The next ctx-generate run restores it automatically.', 'red');
-            break;
-          case 'unknown':
-          default: {
-            const observedMsg = result.observed
-              ? `.context/ ${result.observed.output ? 'exists' : 'does not exist'}, .context.previous/ ${result.observed.previous ? 'exists' : 'does not exist'}.`
-              : 'The state of .context/ and .context.previous/ could not be determined.';
-            const restoreMsg = result.restoreError ? ` (restore error: ${result.restoreError.message})` : '';
-            log(baseMsg + ` The recovery outcome is unclear${restoreMsg} \u2014 ${observedMsg} Inspect both directories before rerunning.`, 'red');
-            break;
-          }
-        }
-        process.exit(1);
-        return;
-      }
-      default:
-        log('\u2717 ctx-generate failed for an unrecognized reason.', 'red');
-        process.exit(1);
-        return;
-    }
-  }
-
-  if (result.mode === 'check') {
-    if (result.fresh) {
-      log('\u2713 .context/ is up to date.', 'green');
-      process.exit(0);
-    } else {
-      log('\u2717 .context/ is stale. Differing paths:', 'red');
-      for (const p of result.diffs) log('  ' + p, 'dim');
-      process.exit(1);
-    }
-    return;
-  }
-
-  log('\u2713 Regenerated .context/', 'green');
-  if (result.leftoverPrevious) {
-    log('\u26a0 .context.previous/ could not be removed \u2014 it will be cleared automatically on the next run.', 'dim');
-  }
-}
-
 function cmdGitHooks() {
   sh('node', [path.join(SCRIPTS_DIR, 'install-hooks.js')], { cwd: WORKSPACE_ROOT });
 }
@@ -674,7 +588,8 @@ async function cmdInstallMcp(args) {
     mcpGlobalDryRun();
   } else {
     try {
-      mcpGlobalInstall({ log: (msg) => log(msg) });
+      const res = mcpGlobalInstall({ log: (msg) => log(msg), error: (msg) => log(msg, 'red') });
+      if (res?.claudeCode === 'failed') process.exitCode = 1;
     } catch (err) {
       log(`  \u2717 ${err.message}`, 'red');
       process.exit(1);
@@ -989,7 +904,7 @@ const COMMANDS = [
     key:         'b',
     label:       'Build & Maintain',
     category:    'Validation & Utilities',
-    description: 'Sync versions, build personas & CTX generate',
+    description: 'Sync versions & build personas',
     run:         cmdBuildMaintain,
   },
   {
@@ -1210,14 +1125,6 @@ const COMMANDS = [
     category:    'Validation & Utilities',
     description: 'Compile doc bundles',
     run:         cmdBundleDocs,
-  },
-  {
-    id:          'ctx-generate',
-    key:         null,
-    label:       'CTX generate',
-    category:    'Validation & Utilities',
-    description: 'Generate context documentation (ctx generate); --check verifies .context/ freshness without writing',
-    run:         cmdCtxGenerate,
   },
   {
     id:          'generate-overview',

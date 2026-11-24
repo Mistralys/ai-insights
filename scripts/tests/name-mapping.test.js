@@ -19,6 +19,8 @@ import {
   resolveVersionFromChangelog,
   validateChangelogField,
   deriveRole,
+  nameMappingPath,
+  isNameMappingPresent,
 } from '../lib/name-mapping.js';
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -327,6 +329,28 @@ describe('validateChangelogField()', () => {
   it('defaults warn/info to console.warn/console.info when no io is supplied', () => {
     // Exercises the default-parameter branch directly (no injected io object).
     expect(() => validateChangelogField('role: Planner\n', 'none.yaml')).not.toThrow();
+  });
+});
+
+// ─── nameMappingPath() / isNameMappingPresent() ─────────────────────────────
+
+describe('nameMappingPath()', () => {
+  it('joins the given personas dir with "name-mapping.json"', () => {
+    const personasDir = path.join('some', 'workspace', 'personas');
+    expect(nameMappingPath(personasDir)).toBe(path.join(personasDir, 'name-mapping.json'));
+  });
+});
+
+describe('isNameMappingPresent()', () => {
+  it('returns false when name-mapping.json does not exist in the given personas dir', () => {
+    const personasDir = makeTempDir();
+    expect(isNameMappingPresent(personasDir)).toBe(false);
+  });
+
+  it('returns true once name-mapping.json has been written to the given personas dir', () => {
+    const personasDir = makeTempDir();
+    writeNameMapping(nameMappingPath(personasDir), [{ id: 'a', suite: 'ledger' }]);
+    expect(isNameMappingPresent(personasDir)).toBe(true);
   });
 });
 

@@ -478,7 +478,7 @@ Requirements for anything newly added:
 `--check` (alias `--dry-run`) renders the deck in memory and compares it byte-for-byte against the
 committed `dist/` output, reporting the first differing line. It never writes. The repository
 pre-commit hook runs it as an **advisory warning** whenever a presentation source is staged, in the
-same spirit as the existing `.context/` staleness warning — it never blocks a commit.
+advisory only — it never blocks a commit.
 
 Steps, in order:
 

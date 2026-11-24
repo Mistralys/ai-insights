@@ -17,13 +17,17 @@
 | Package | Version | Purpose |
 |---------|---------|---------|
 | `js-yaml` | ^4.1.0 | Parse YAML metadata files (`_shared.yaml`, per-persona YAMLs) |
-| `@mistralys/persona-builder` | ^2.6.0 | Library that owns all persona build logic — template engine, partial resolution, conditional processing, and variable interpolation. Invoked by `build-personas.js` via its CLI binary. |
+| `@mistralys/persona-builder` | ^3.0.1 | Library that owns all persona build logic — template engine, partial resolution, conditional processing, and variable interpolation. Invoked by `build-personas.js` via its CLI binary. |
 
 ### Workspace-level Dependencies
 
 | Package | Version | Scope | Purpose |
 |---------|---------|-------|---------|
-| `vitest` | ^4.0.18 | workspace-root `devDependencies` | Test runner — no longer used for persona-build tests post-migration; retained for other workspace test suites |
+| `vitest` | ^4.0.18 | workspace-root `devDependencies` | Test runner for the workspace-root suite in `scripts/tests/` (`npm test` at the workspace root). Not a dependency of `personas/package.json` |
+
+### Testing
+
+The personas module has no test framework of its own: `personas/package.json` declares no test script or test dependency, and the persona build logic lives in the external `@mistralys/persona-builder` library, which carries its own tests. `--check` on `build-personas.js` is a write-free validation run, not a test suite. The `ledgerPlugin` code under `personas/plugins/ledger/` is exercised by the workspace-root Vitest suite in `scripts/tests/` (for example `ledger-plugin.test.js`), which belongs to the root tooling rather than to this module.
 
 The thin wrapper `build-personas.js` delegates all build logic to `@mistralys/persona-builder` via its CLI binary (`dist/cli.js`). The wrapper itself only resolves paths and forwards CLI flags (`--check`, `--strict`) to the library.
 

@@ -3,6 +3,17 @@
    Section 4d-pm of the MCP Server Dashboard SPA
    Depends on: API, UI, escapeHtml, configDirty (defined in config.js)
    Must be loaded BEFORE config.js.
+
+   Tab contract (see config.js's CONFIG_TABS registry): this module is
+   registered as { render, leave: pmLeaveTab, reset: pmResetState }.
+   pmLeaveTab(discarded) resets module state only when discarded is true —
+   the page-load arguments passed to renderPersonaModelsTab() are not
+   refreshed after a save, so resetting unconditionally on every leave would
+   re-initialise from stale data on return. pmResetState() (used for a full
+   page reload) always resets. pmIsBuilding is deliberately NOT reset by a
+   non-discarding leave (it spans visits, like config-error-codes.js's
+   ecSaveInFlight): a rebuild left running in the background must still be
+   able to clear it when it eventually settles.
    ============================================================ */
 
 /* ── Module-level state ──────────────────────────────────── */
@@ -12,9 +23,19 @@
    pmPersonas:     full persona list from GET /api/personas.
    pmAssignments:  working copy of assignments (default_model_uuid + persona_models).
    pmOriginal:     snapshot of assignments at load/save time for dirty comparison.
-   pmIsBuilding:   true while a rebuild is in progress.
+   pmIsBuilding:   true while a rebuild is in progress. Spans visits by
+                   design: pmDoRebuild's callback always clears it, even
+                   when stale, so a rebuild started before the user left the
+                   tab doesn't leave the flag stuck on return.
    pmCollapsed:    set of suite names the user has collapsed.
-   pmReplaceOpen:  true when the Replace Model inline form is shown. */
+   pmReplaceOpen:  true when the Replace Model inline form is shown.
+   pmVisit:        Monotonic visit token, incremented by pmResetState() and
+                   pmLeaveTab(). Every async callback (Save, Rebuild and its
+                   nested refresh, Replace Model) captures it before the
+                   request and returns early when it no longer matches, so a
+                   late response can never write into another tab's DOM or
+                   repopulate state that was just cleared (same pattern as
+                   config-error-codes.js's ecVisit). */
 var pmModels      = null;   /* ModelEntry[] | null */
 var pmPersonas    = null;   /* PersonaEntry[] | null */
 var pmAssignments = null;   /* { default_model_uuid?: string, persona_models: {} } | null */
@@ -22,6 +43,35 @@ var pmOriginal    = null;   /* deep-cloned snapshot for dirty comparison */
 var pmIsBuilding  = false;
 var pmCollapsed   = {};     /* { [suiteName]: boolean } */
 var pmReplaceOpen = false;
+var pmVisit       = 0;
+
+/**
+ * Leave the tab: always invalidate in-flight requests (increments pmVisit).
+ * Resets module state only when `discarded` is true (the user confirmed
+ * discarding unsaved changes) — a non-discarding leave must preserve
+ * unsaved edits, since renderPersonaModelsTab()'s page-load arguments are
+ * not refreshed after a save and would otherwise overwrite them on return.
+ * pmIsBuilding is reset here too when discarded (matching the prior
+ * behaviour), but a stale pmDoRebuild callback clears it again regardless —
+ * see the module header comment.
+ *
+ * Called by config.js's CONFIG_TABS registry.
+ */
+function pmLeaveTab(discarded) {
+  pmVisit++;
+  if (discarded) {
+    pmModels = pmPersonas = pmAssignments = pmOriginal = null;
+    pmIsBuilding = false; pmCollapsed = {}; pmReplaceOpen = false;
+  }
+}
+
+/**
+ * Reset all module state unconditionally. Used on a full Configuration page
+ * reload, where fresh server data is always about to replace it.
+ */
+function pmResetState() {
+  pmLeaveTab(true);
+}
 
 /* Suite display labels — maps raw suite keys to user-facing strings. */
 var PM_SUITE_LABELS = {
@@ -135,9 +185,10 @@ function pmBuildTabHtml() {
   if (!pmPersonas || pmPersonas.length === 0) {
     return UI.card('Persona Models',
       '<div class="pm-prebuild-state">' +
-        '<p><strong>No persona data available.</strong> Run the persona build to generate persona output files and populate this tab.</p>' +
+        '<p><strong>No persona data available.</strong> Run the persona build to generate persona output files and populate this tab. ' +
+        'This output is generated locally, not in Git.</p>' +
         '<button id="pm-prebuild-rebuild-btn" class="btn btn-primary"' + (pmIsBuilding ? ' disabled' : '') + '>' +
-          (pmIsBuilding ? '<span class="spinner"></span> Rebuilding…' : 'Rebuild Personas') +
+          (pmIsBuilding ? '<span class="spinner"></span> Building…' : 'Build personas') +
         '</button>' +
         '<div id="pm-build-error" style="display:none;"></div>' +
       '</div>'
@@ -479,8 +530,10 @@ function pmWireEvents() {
       if (!confirm('Replace all assignments of "' + oldName + '" with "' + newName + '"?')) return;
 
       replaceAllBtn.disabled = true;
+      var replaceVisit = pmVisit;
       API.replaceAssignedModel(oldId, newId)
         .then(function (result) {
+          if (replaceVisit !== pmVisit) return;
           /* Update working copy with new assignments from server */
           if (result) {
             if (result.default_model_uuid !== undefined) {
@@ -494,6 +547,7 @@ function pmWireEvents() {
           pmRefreshTab();
         })
         .catch(function (err) {
+          if (replaceVisit !== pmVisit) return;
           replaceAllBtn.disabled = false;
           var msgEl = document.getElementById('pm-replace-msg');
           if (msgEl) msgEl.innerHTML = '<p class="error-banner">Replace failed: ' + escapeHtml(err.message || String(err)) + '</p>';
@@ -559,8 +613,11 @@ function pmDoSave() {
     payload.default_model_uuid = pmAssignments.default_model_uuid;
   }
 
+  var visit = pmVisit;
+
   API.updateAssignments(payload)
     .then(function (result) {
+      if (visit !== pmVisit) return;
       /* Update snapshot and mark saved state as stale (server returns stale: true) */
       pmOriginal = pmCloneAssignments(result || payload);
       if (pmAssignments) {
@@ -576,6 +633,7 @@ function pmDoSave() {
       if (msg2) msg2.innerHTML = '<span class="success-banner" style="display:inline-block;padding:4px 10px;">Saved.</span>';
     })
     .catch(function (err) {
+      if (visit !== pmVisit) return;
       if (saveBtn) saveBtn.disabled = false;
       var msg2 = document.getElementById('pm-save-msg');
       if (msg2) msg2.innerHTML = '<p class="error-banner">Save failed: ' + escapeHtml(err.message || String(err)) + '</p>';
@@ -593,26 +651,40 @@ function pmDoRebuild() {
 
   pmRefreshTab();
 
+  var visit = pmVisit;
+
   API.rebuildPersonas()
     .then(function (result) {
-      pmIsBuilding = false;
+      pmIsBuilding = false; /* spans visits: always cleared, even when stale (mirrors ecSaveInFlight) */
+      /* Let the global setup-notices banner know the build finished so it can
+         re-fetch and clear itself. Guarded because SetupNotices loads after
+         this module in index.html but is always defined by the time a user
+         can click Rebuild; the guard only protects test harnesses that load
+         this module in isolation. Called unconditionally on success, even
+         when this tab's own visit token has gone stale, since the banner is
+         global GUI-shell state, not tab state. */
+      if (window.SetupNotices) { SetupNotices.refresh(); }
+      if (visit !== pmVisit) return;
       /* Re-fetch persona list and assignments to reflect rebuilt state */
       Promise.all([
         API.getPersonas(),
         API.getAssignments()
       ]).then(function (refreshed) {
+        if (visit !== pmVisit) return;
         pmPersonas = refreshed[0] || [];
         var freshAssignments = refreshed[1] || {};
         /* Update stale flag from server */
         if (pmAssignments) pmAssignments.stale = freshAssignments.stale;
         pmRefreshTab();
       }).catch(function () {
+        if (visit !== pmVisit) return;
         /* Even if refresh fails, just re-render with existing data */
         pmRefreshTab();
       });
     })
     .catch(function (err) {
-      pmIsBuilding = false;
+      pmIsBuilding = false; /* spans visits: always cleared, even when stale */
+      if (visit !== pmVisit) return;
       pmRefreshTab();
       /* Show build error output */
       var errEl2 = document.getElementById('pm-build-error');
@@ -634,9 +706,10 @@ function pmDoRebuild() {
  * subsequent call — including when the user switches away and back to this tab
  * without discarding changes — the existing module-level state (pmAssignments,
  * pmReplaceOpen, etc.) is kept intact so unsaved edits are preserved. State is
- * reset to null by the coordinator's discard-changes path in config.js, which
- * sets pmModels = null, causing the next render to re-initialize from the
- * freshly fetched server data passed in via the arguments.
+ * reset to null by pmLeaveTab(true), called by config.js's CONFIG_TABS
+ * registry when the tab-bar's confirm() guard reports a confirmed discard,
+ * causing the next render to re-initialize from the freshly fetched server
+ * data passed in via the arguments.
  */
 function renderPersonaModelsTab(models, personas, assignments) {
   /* Initialize module-level state on first render (or after a discard reset). */

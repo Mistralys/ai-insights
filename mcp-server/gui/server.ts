@@ -17,7 +17,8 @@ import { join, extname, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { resolveLedgerRoot, resolveProjectDir, ORCHESTRATOR_LOGS_DIR, WORKSPACE_ROOT } from '../src/utils/ledger-root.js';
-import { loadStoresConfig, resolveGuiConfigPath } from '../src/storage/store-registry.js';
+import { loadStoresConfig, resolveGuiConfigPath, resolveErrorCodePluginDir } from '../src/storage/store-registry.js';
+import { initProviderRegistry, listProviderLoadErrors } from '../src/error-codes/provider-registry.js';
 import { StoreRouter } from '../src/storage/store-router.js';
 import { MultiStoreManager } from '../src/storage/multi-store-manager.js';
 import { setStoreContext, isStoreContextInitialized, getStoreRouter } from '../src/storage/store-context.js';
@@ -97,7 +98,16 @@ import {
   handleGetPersonas,
   handleRebuildPersonas,
 } from './api-models.js';
+import { handleGetSetupNotices } from './setup-notices.js';
 import { renderChunksToDialogue, renderChunksToStructured } from './chunk-renderer.js';
+import {
+  handleListErrorCodeProviders,
+  handleGetErrorCodeConfig,
+  handleUpdateErrorCodeConfig,
+  handleTestErrorCodeProvider,
+  handleListTemporaryErrorCodesGui,
+} from './api-error-codes.js';
+import { requireLoopbackRequest, requireJsonContentType } from './route-guards.js';
 
 // ---------------------------------------------------------------------------
 // Path resolution (ESM-safe)
@@ -198,6 +208,8 @@ export function apiErrorToStatus(code: string): number {
       return 400;
     case 'CONFLICT':
       return 409;
+    case 'UNSUPPORTED_MEDIA_TYPE':
+      return 415;
     default:
       return 500;
   }
@@ -298,6 +310,16 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 /**
+ * A request-level check `dispatchRoute` runs after a route matches and
+ * before `readJsonBody`. Throws `ApiError` (via `gui/route-guards.ts`'s
+ * helpers) to reject the request — `dispatchRoute`'s existing `ApiError`
+ * handling maps it to a status code and error body exactly as it would for
+ * a handler-thrown error, so a guard needs no dispatcher changes of its own
+ * beyond being invoked.
+ */
+export type RouteGuard = (req: IncomingMessage, port: number) => void;
+
+/**
  * A declarative body-parsing route entry for {@link buildRoutes} and
  * {@link dispatchRoute}.
  *
@@ -312,6 +334,9 @@ export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
  * - `statusCode` — Response status code (default `200`). Use `204` for empty
  *   responses — the dispatcher writes the header and skips `sendJson()`.
  * - `noBody` — When `true`, skip `readJsonBody()`.
+ * - `guards` — Optional, run in array order after the route matches and
+ *   before `readJsonBody`. A route with no `guards` behaves exactly as
+ *   before this field existed.
  */
 export interface Route {
   method: HttpMethod;
@@ -319,6 +344,7 @@ export interface Route {
   handler: (body: unknown, groups?: Record<string, string>, query?: URLSearchParams) => Promise<unknown>;
   statusCode?: number;
   noBody?: boolean;
+  guards?: readonly RouteGuard[];
 }
 
 // ---------------------------------------------------------------------------
@@ -477,6 +503,7 @@ async function serveStatic(
  *   PUT  /api/config
  *   GET  /api/server-info
  *   GET  /api/config
+ *   GET  /api/setup-notices
  */
 function buildConfigRoutes(
   configPath: string,
@@ -500,6 +527,9 @@ function buildConfigRoutes(
     // GET /api/config
     { method: 'GET', path: '/api/config', noBody: true,
       handler: async () => handleGetConfig(configPath) },
+    // GET /api/setup-notices
+    { method: 'GET', path: '/api/setup-notices', noBody: true,
+      handler: async () => handleGetSetupNotices() },
   ];
 }
 
@@ -1306,6 +1336,47 @@ function buildProjectRoutes(
  *     `/:slug/synthesis`, etc.) if they were declared before them, permanently
  *     breaking backward compatibility with pre-namespace clients.
  */
+/**
+ * Error-code provider routes (the GUI's Error Codes settings tab).
+ *
+ *   GET  /api/error-codes/providers
+ *   GET  /api/error-codes/config
+ *   PUT  /api/error-codes/config
+ *   POST /api/error-codes/test
+ *   GET  /api/error-codes/temporary
+ *
+ * Every route carries `requireLoopbackRequest`; the two body-carrying
+ * routes (`PUT`, `POST`) additionally carry `requireJsonContentType`. These
+ * routes reach third-party provider plugin code and the user's own stored
+ * secrets, which is why they are guarded rather than relying on the
+ * response-only `Access-Control-Allow-Origin` header the rest of the server
+ * sends — see `gui/route-guards.ts`'s module docblock.
+ */
+function buildErrorCodeRoutes(): Route[] {
+  return [
+    // GET /api/error-codes/providers
+    { method: 'GET', path: '/api/error-codes/providers', noBody: true,
+      guards: [requireLoopbackRequest],
+      handler: async () => handleListErrorCodeProviders() },
+    // GET /api/error-codes/config
+    { method: 'GET', path: '/api/error-codes/config', noBody: true,
+      guards: [requireLoopbackRequest],
+      handler: async () => handleGetErrorCodeConfig() },
+    // PUT /api/error-codes/config
+    { method: 'PUT', path: '/api/error-codes/config',
+      guards: [requireLoopbackRequest, requireJsonContentType],
+      handler: async (body) => handleUpdateErrorCodeConfig(body) },
+    // POST /api/error-codes/test
+    { method: 'POST', path: '/api/error-codes/test',
+      guards: [requireLoopbackRequest, requireJsonContentType],
+      handler: async (body) => handleTestErrorCodeProvider(body) },
+    // GET /api/error-codes/temporary[?limit]
+    { method: 'GET', path: '/api/error-codes/temporary', noBody: true,
+      guards: [requireLoopbackRequest],
+      handler: async (_, _groups, query) => handleListTemporaryErrorCodesGui(query) },
+  ];
+}
+
 export function buildRoutes(
   ledgerRoot: string,
   configPath: string,
@@ -1319,6 +1390,7 @@ export function buildRoutes(
     ...buildKnowledgeRoutes(ledgerRoot),
     ...buildModelRoutes(),
     ...buildStoreRoutes(ledgerRoot),
+    ...buildErrorCodeRoutes(),
     ...buildProjectRoutes(ledgerRoot, orchestratorLogsDir),
   ];
 }
@@ -1375,6 +1447,11 @@ export async function dispatchRoute(
       groups = (m.groups ?? {}) as Record<string, string>;
     }
     try {
+      if (route.guards) {
+        for (const guard of route.guards) {
+          guard(req, port);
+        }
+      }
       const body = route.noBody ? undefined : await readJsonBody(req);
       const result = await route.handler(body, groups, query);
       if (route.statusCode === 204) {
@@ -1485,6 +1562,20 @@ async function main(): Promise<void> {
   // Start the auto-archive background service. Reads auto_archive_days from
   // config; no-op if the setting is 0.
   startAutoArchiveTimer(ledgerRoot);
+
+  // Build the error-code provider registry (built-ins + third-party plugins)
+  // before the server starts accepting requests, so the Error Codes tab's
+  // providers list and settings forms reflect the same built-in and plugin
+  // set the MCP server loaded — both processes call initProviderRegistry()
+  // independently against the same plugin directory. A plugin load failure
+  // is logged and otherwise ignored — it must never stop GUI startup.
+  await initProviderRegistry({ pluginDir: resolveErrorCodePluginDir() });
+  const errorCodeLoadErrors = listProviderLoadErrors();
+  if (errorCodeLoadErrors.length > 0) {
+    process.stdout.write(
+      `[gui-server] error-codes: ${errorCodeLoadErrors.length} provider plugin(s) failed to load — see GUI Error Codes tab for details.\n`
+    );
+  }
 
   const server = createServer((req, res) => {
     handleRequest(req, res, ledgerRoot, configPath, port, orchestratorLogsDir, bootVersions).catch((err) => {

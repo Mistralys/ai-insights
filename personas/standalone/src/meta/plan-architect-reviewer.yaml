@@ -5,6 +5,28 @@ vs_file_name: plan-architect-reviewer.agent.md
 id: standalone-plan-architect-reviewer
 cc_file_name: plan-architect-reviewer.md
 changelog: |
+  2.5.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
+    carries the final report, and waits for the task notification only when the report says another agent is still
+    running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
+    rule to wait for it stalled every dispatch until the user typed.
+  2.5.1 (2026-10-28): The Output Location now describes `design-review.md` as an input file and names the Planner as
+    its reader. Claude Code tells every sub-agent to write no report or findings files and to return findings as a
+    reply, but exempts files written as input to another tool; a Plan Auditor dispatched by the Plan Refiner on
+    2026-10-28 read its audit as a report and skipped `audit.md`. Workflow step 10 is renamed Write the Planner's
+    Input. The shared `subagent-briefing` section now has a dispatch prompt name the file the next step reads the sub-
+    agent's result from: the output file is part of the task, not the method. Without it, Claude Code's own note
+    telling sub-agents to return findings as a reply wins, as it did for a Plan Auditor on 2026-10-28 that skipped
+    `audit.md`.
+  2.5.0 (2026-10-27): Includes the shared `subagent-briefing` section: a dispatch to a persona carries the task
+    and the facts the sub-agent cannot find by itself, never its role, steps, output format or quality checks, since
+    a method written into the prompt overrides the sub-agent's own; a generic agent with no persona is briefed in
+    full.
+  2.4.0 (2026-10-26): Claude Code build includes the shared `subagent-wait-claude-code` section: every dispatch
+    runs in the background, so the persona waits for a sub-agent's task notification by ending its turn, never
+    polls or waits on a file it expects, and passes neither `name` nor `run_in_background`. The Project Manager
+    hung for up to 40 hours on an invented wait loop, and named dispatches started teammates outside the dispatcher's task, whose results never arrived,
+    told to report through a `SendMessage` tool they never had; a second launch failure follows the calling step's own
+    failure handling
   2.3.4 (2026-09-29): Claude Code sub-agent dispatches now pass `subagent_type` with the agent's slug — the name sat
     in `description`, which starts a persona-less general-purpose agent; deep-agents dispatch gained its own
     branch, and a `subagents` list declares `researcher`

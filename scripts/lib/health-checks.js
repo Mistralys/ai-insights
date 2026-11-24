@@ -24,6 +24,7 @@ import path from 'path';
 import { spawn } from 'child_process';
 import { isCliLinked } from './npm-link.js';
 import { latestMtime } from './mcp-dist-freshness.js';
+import { isNameMappingPresent } from './name-mapping.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -160,6 +161,18 @@ export const HEALTH_CHECKS = [
       return major >= 18;
     },
     fix: 'Install Node.js 18 or later from https://nodejs.org',
+  },
+
+  /** @type {SyncCheck} */
+  {
+    id: 'name-mapping-present',
+    label: 'Persona name mapping built',
+    cost: 'instant',
+    /** @returns {boolean} */
+    detect() {
+      return isNameMappingPresent(PERSONAS_DIR);
+    },
+    fix: 'node scripts/build-personas.js',
   },
 
   // ── fast tier (< 50 ms — mtime comparisons, JSON reads) ──────────────────

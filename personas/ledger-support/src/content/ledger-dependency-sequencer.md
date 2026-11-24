@@ -42,6 +42,8 @@ Save the analysis to:
 {PLAN_PATH}/dependency-analysis.md
 ```
 
+The file is an input for the next steps, not a report. The Pipeline Configurator and the Ledger Bootstrapper read it from this path, and neither sees this session's reply.
+
 ## Sequencing Protocol
 
 ### Step 1 — Read all WP Definitions

@@ -14,8 +14,8 @@ Two independent, composable primitives:
     bare identifiers) rather than importing pytest's own (private,
     ``_pytest``-prefixed) expression engine, so this module has zero
     dependency on pytest internals — identical in spirit to the way
-    ``scripts/lib/mcp-dist-freshness.js`` and `scripts/lib/ctx-generate.js``
-    avoid depending on internals of the tools they wrap.
+    ``scripts/lib/mcp-dist-freshness.js`` avoids depending on internals of
+    the tools it wraps.
 
 ``probe_credentials(env, opener, timeout)``
     Live-validates whichever LLM API key is present (Anthropic preferred,

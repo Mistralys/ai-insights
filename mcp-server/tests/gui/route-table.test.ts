@@ -110,4 +110,12 @@ describe('getRouteDescriptors() — route table structural invariants', () => {
     expect(orderIndex).toBeLessThan(storeIdIndex);
   });
 
+  it('includes GET /api/setup-notices', () => {
+    const setupNoticesIndex = routes.findIndex(
+      (r) => r.method === 'GET' && r.path === '/api/setup-notices'
+    );
+
+    expect(setupNoticesIndex).toBeGreaterThanOrEqual(0);
+  });
+
 });

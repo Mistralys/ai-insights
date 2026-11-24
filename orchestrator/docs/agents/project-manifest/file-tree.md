@@ -10,7 +10,6 @@ orchestrator/
 ├── README.md                   # Full user-facing documentation
 ├── requirements.txt            # Pinned dependencies
 ├── changelog.md                # Version history
-├── module-context.yaml         # CTX Generator config
 │
 ├── docs/
 │   ├── agents/
