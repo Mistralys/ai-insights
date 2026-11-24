@@ -98,6 +98,7 @@ import {
   handleGetPersonas,
   handleRebuildPersonas,
 } from './api-models.js';
+import { handleGetSetupNotices } from './setup-notices.js';
 import { renderChunksToDialogue, renderChunksToStructured } from './chunk-renderer.js';
 import {
   handleListErrorCodeProviders,
@@ -502,6 +503,7 @@ async function serveStatic(
  *   PUT  /api/config
  *   GET  /api/server-info
  *   GET  /api/config
+ *   GET  /api/setup-notices
  */
 function buildConfigRoutes(
   configPath: string,
@@ -525,6 +527,9 @@ function buildConfigRoutes(
     // GET /api/config
     { method: 'GET', path: '/api/config', noBody: true,
       handler: async () => handleGetConfig(configPath) },
+    // GET /api/setup-notices
+    { method: 'GET', path: '/api/setup-notices', noBody: true,
+      handler: async () => handleGetSetupNotices() },
   ];
 }
 

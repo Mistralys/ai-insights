@@ -15,7 +15,7 @@ personas/
 ├── package.json                       # Package metadata; version field kept in sync with changelog.md
 ├── package-lock.json
 ├── module-context.yaml
-├── name-mapping.json                  # [generated] Per-persona agent-name lookup; regenerated on every real build
+├── name-mapping.json                  # [generated, gitignored] Per-persona agent-name lookup; regenerated on every real build; read lazily/per-call by the MCP server's getAgentNames() (mcp-server/src/utils/name-mapping.ts), not at server startup
 │
 ├── persona-build.config.js            # ← Build configuration for @mistralys/persona-builder
 │                                      #   Declares suites (ledger, standalone, ledger-support), output dirs, and plugins

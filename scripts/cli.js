@@ -43,6 +43,7 @@ import { getPublishLocations } from './publish-locations.js';
 import { install as mcpGlobalInstall, dryRun as mcpGlobalDryRun, shimConfigExists } from './install-mcp-global.js';
 import { isCliLinked, linkCli } from './lib/npm-link.js';
 import { HEALTH_CHECKS, runChecks } from './lib/health-checks.js';
+import { isNameMappingPresent } from './lib/name-mapping.js';
 import { isMcpDistStale } from './lib/mcp-dist-freshness.js';
 import { getOriginalCwd } from './lib/original-cwd.js';
 import { releaseStdinForChild } from './lib/stdin-handoff.js';
@@ -211,7 +212,11 @@ const SETUP_COMPONENTS = [
       const outerLock = path.join(PERSONAS_DIR, 'package-lock.json');
       const innerLock = path.join(PERSONAS_DIR, 'node_modules', '.package-lock.json');
       if (!fs.existsSync(innerLock)) return false;
-      return fs.statSync(outerLock).mtimeMs <= fs.statSync(innerLock).mtimeMs;
+      if (fs.statSync(outerLock).mtimeMs > fs.statSync(innerLock).mtimeMs) return false;
+      // personas/name-mapping.json is a generated, untracked build artefact
+      // (see .gitignore) — a fresh clone or pull never carries it, so this
+      // component must be re-run until the build has produced it.
+      return isNameMappingPresent(PERSONAS_DIR);
     },
     run() {
       log('  Installing personas dependencies…', 'dim');
@@ -224,6 +229,7 @@ const SETUP_COMPONENTS = [
       return (r.status ?? 1) === 0;
     },
     validate() {
+      if (!isNameMappingPresent(PERSONAS_DIR)) return false;
       try {
         const dir = path.join(PERSONAS_DIR, 'ledger', 'vs-code');
         return fs.readdirSync(dir).some((f) => f.endsWith('.md'));

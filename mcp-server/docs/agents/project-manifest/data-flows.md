@@ -909,14 +909,19 @@ currentDepth = root.auto_handoff_depth ?? 0
   [currentDepth < effectiveMaxDepth(root.total_work_packages ?? 0)?]
     YES → store.writeRootIndex({ ...root, auto_handoff_depth: currentDepth + 1 })
           agentId = getAgentId(nextAgent)          // null when persona has no id: frontmatter field
-          agentNames = AGENT_NAMES[nextAgent]       // loaded from personas/name-mapping.json at startup
+          agentNames = getAgentNames()[nextAgent]   // per-call lookup; src/utils/name-mapping.ts
+                                                     // tolerantly loads personas/name-mapping.json
+                                                     // (gitignored, generated) — returns {} rather
+                                                     // than throwing when the file is absent/malformed
           auto_handoff object is included in the response payload:
             {
               agent_name:    agentHandle,                        // VS Code display name from Agent Registry
               agent_id:      agentId ?? (omitted),               // omitted when null — not serialized
-              cc_agent_name: agentNames.claude_code.agent_name,  // e.g. "3-developer"
-              vs_agent_name: agentNames.vscode.agent_name,       // e.g. "3 - Developer v3.6.1"
-              da_agent_name: agentNames.deep_agents.agent_name,  // e.g. "3-developer"
+              ...(agentNames ? {                                 // cc/vs/da_agent_name omitted as a group
+                cc_agent_name: agentNames.claude_code.agent_name,  // e.g. "3-developer"
+                vs_agent_name: agentNames.vscode.agent_name,       // e.g. "3 - Developer v3.6.1"
+                da_agent_name: agentNames.deep_agents.agent_name,  // e.g. "3-developer"
+              } : {}),                                            // when nextAgent has no mapping entry
               prompt:        buildHandoffPrompt(projectPath, agentId)
             }
     NO  → auto_handoff is omitted from the response (depth exceeded — see 13d)

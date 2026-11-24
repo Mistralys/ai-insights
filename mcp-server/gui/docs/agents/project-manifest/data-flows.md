@@ -570,3 +570,69 @@ renderConfigPage(app, config, models, personas, assignments, stores)
 
 **Key invariant:** adding a sixth Configuration tab requires only a new `CONFIG_TABS` descriptor — `renderConfigTabContent()` and the tab-bar click handler both dispatch purely off the array via `configFindTab()`, with no separate branch to update.
 
+---
+
+## 16. Setup Notices Detection (Backend)
+
+`personas/name-mapping.json` is a generated build artefact (see `src/utils/name-mapping.ts`); a fresh clone or a pull that touched the model registry leaves it absent until the next persona build. `gui/setup-notices.ts` is the backend half of surfacing that gap to the user; the frontend banner that calls this endpoint is `public/setup-notices.js`, covered in [§17](#17-setup-notices-banner-frontend) below.
+
+```
+GET /api/setup-notices
+  └── handleGetSetupNotices()
+        └── detectSetupNotices()                 ← pure, synchronous, no I/O beyond a stat()
+              └── isNameMappingPresent()          (src/utils/name-mapping.ts)
+                    ├── false → push { id: "personas-not-built", title, message,
+                    │           action: { kind: "rebuild-personas" } }
+                    └── true  → push nothing
+        → { notices: SetupNotice[] }              ([] when nothing is amiss)
+```
+
+The response is array-shaped even though only one notice exists today, so a second notice can be introduced later — e.g. a stale model registry, a missing store directory — with no client-side contract change. A `SetupNoticeProvider` registry is deferred until a second consumer exists in scope.
+
+**Path-derivation ownership:** `gui/api-models.ts`'s private `nameMappingPath()` and `gui/setup-notices.ts`'s `isNameMappingPresent()` both resolve `personas/name-mapping.json` exclusively through `resolveNameMappingPath()` in `src/utils/name-mapping.ts` — the single owner of that derivation inside `mcp-server`. Neither file re-derives the path independently, which is what keeps them from drifting apart.
+
+---
+
+## 17. Setup Notices Banner (Frontend)
+
+`public/setup-notices.js` (`SetupNotices` namespace) is the client half of §16. It is modelled on `stale-check.js`'s IIFE/polling shape but kept as a **separate module** — the two banners track different lifecycles ("relaunch needed", one-shot and never clears, versus "build something", recurring and clears once the gap closes) — and is **one-way coupled** to `views/config-persona-models.js`: only that view calls `SetupNotices.refresh()`; `SetupNotices` never reaches into any view module and dispatches no window event.
+
+```
+app.js
+  └── SetupNotices.init()                          ← called after StaleCheck.init()
+        ├── _ensureContainer()                      inserts #setup-notices (role=status,
+        │                                            aria-live=polite) before body>header,
+        │                                            after .stale-banner when present
+        ├── document.addEventListener('visibilitychange', _onVisibilityChange)  (once)
+        ├── _startPolling()                          ← interval always starts here, so a
+        │                                              failed first fetch still gets retried
+        └── refresh()
+              └── API.getSetupNotices()  → GET /api/setup-notices
+                    ├── success → _notices = data.notices; prune _buildState for
+                    │             ids no longer present; _render();
+                    │             notices.length > 0 ? _startPolling() : _stopPolling()
+                    └── failure → swallowed; polling/notices/state left untouched
+
+_render() — per notice (DOM only, textContent for every server string):
+  .setup-banner
+    ├── <strong> title, <span> message
+    ├── action.kind === 'rebuild-personas' → <button class="setup-banner-btn">
+    │     building  → disabled, <span class="spinner" aria-hidden="true"> + "Building…"
+    │     conflict  → disabled, "Build already running…"           (409 from rebuildPersonas())
+    │     otherwise → "Build personas", click → _doBuild(notice.id)
+    └── state.error → <details class="setup-banner-error"><summary>Build failed</summary>
+          <p>Run <code>node scripts/cli.js setup</code> …</p>
+          <pre class="pm-build-error-pre">{error output}</pre>          ← reused class
+
+_doBuild(noticeId)
+  └── API.rebuildPersonas()  → POST /api/personas/rebuild
+        ├── success → refresh()                      (the resolved notice drops out on its own)
+        └── failure → err.code === 'CONFLICT' ? state.conflict = true : state.error = message
+```
+
+**Polling lifecycle:** the interval (`POLL_INTERVAL_MS = 30000`, same cadence as `StaleCheck`) runs whenever `_startPolling()` was last called and not since stopped; `refresh()`'s own success branch is the only place that decides to stop it (empty list) or (re)start it (non-empty list) — a network failure never touches polling state either way. `document.hidden` stops the interval outright via the `visibilitychange` listener; becoming visible again restarts the interval and performs an immediate `refresh()` so a build that finished while the tab was hidden (e.g. CLI-triggered) is picked up without waiting for the next tick. A 409 (`conflict`) does not stop polling — the notice is still active, so the next tick keeps checking until the other build finishes.
+
+**One-way tab → banner call:** `views/config-persona-models.js`'s `pmDoRebuild()` calls `window.SetupNotices.refresh()` (guarded — the view must tolerate the module being absent) immediately after its own `pmIsBuilding = false`, unconditionally — before its `pmVisit` staleness check — so the banner clears even when the Persona Models tab itself was left without discarding. No event travels the other way: `SetupNotices` has no knowledge of `config-persona-models.js`, and no `CustomEvent` is dispatched on `window`.
+
+**Styling:** `.setup-banner` reuses the `--color-banner-stale-{bg,fg,border}` tokens (same as `.stale-banner`), but is `position: static` (non-sticky) so it never fights `.stale-banner` for the sticky top slot — `_ensureContainer()` places `#setup-notices` immediately after `.stale-banner` in the DOM when one exists. `.setup-banner button:focus-visible` uses `--color-banner-stale-fg` (not `-border`) for its outline — hand-computed contrast against the banner's own background clears the 3:1 floor in both themes (`-border` alone does not, in the light theme). No new `@keyframes` are introduced; the building state reuses the existing `.spinner` animation.
+

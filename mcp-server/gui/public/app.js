@@ -5,4 +5,5 @@
 Theme.init();
 Router.init();
 StaleCheck.init();
+SetupNotices.init();
 

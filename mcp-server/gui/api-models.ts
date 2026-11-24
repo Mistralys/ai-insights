@@ -47,6 +47,7 @@ import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { ApiError } from '../src/gui/errors.js';
 import { WORKSPACE_ROOT } from '../src/utils/ledger-root.js';
+import { resolveNameMappingPath } from '../src/utils/name-mapping.js';
 import {
   readModels,
   writeModels,
@@ -85,10 +86,14 @@ function modelRegistryDir(): string {
 
 /**
  * Returns the absolute path to name-mapping.json.
- * `{WORKSPACE_ROOT}/personas/name-mapping.json`
+ *
+ * Delegates to `resolveNameMappingPath()` in `src/utils/name-mapping.ts` —
+ * the single owner of this derivation inside `mcp-server` — rather than
+ * re-deriving `{WORKSPACE_ROOT}/personas/name-mapping.json` here, so the two
+ * cannot drift apart.
  */
 function nameMappingPath(): string {
-  return join(WORKSPACE_ROOT, 'personas', 'name-mapping.json');
+  return resolveNameMappingPath();
 }
 
 /**

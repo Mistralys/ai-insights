@@ -386,6 +386,74 @@ describe('stale responses after leaving a tab (AC-13)', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Persona Models <-> SetupNotices wiring (WP-004, ledger numbering)
+// ---------------------------------------------------------------------------
+
+describe('Persona Models pre-build state and SetupNotices wiring', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '<div id="config-tab-content"></div>';
+  });
+
+  afterEach(() => {
+    delete (globalThis as unknown as { SetupNotices?: unknown }).SetupNotices;
+  });
+
+  it('labels the pre-build rebuild button "Build personas" and notes the output is not in Git', () => {
+    const pmTab = findTab('personaModels');
+    pmTab.render(makeConfig(), [makeModel()], [], { persona_models: {} }); // no personas yet -> pre-build state
+
+    const btn = document.getElementById('pm-prebuild-rebuild-btn') as HTMLButtonElement;
+    expect(btn.textContent).toBe('Build personas');
+    expect(contentEl().textContent).toContain('generated locally, not in Git');
+  });
+
+  it('a successful rebuild calls SetupNotices.refresh() when the global module is present', async () => {
+    const pmTab = findTab('personaModels');
+    pmTab.render(makeConfig(), [makeModel()], [makePersona()], { persona_models: {} });
+
+    const refresh = vi.fn();
+    (globalThis as unknown as { SetupNotices: { refresh: () => void } }).SetupNotices = { refresh };
+
+    globalThis.API.rebuildPersonas = vi.fn().mockResolvedValue({});
+    (document.getElementById('pm-rebuild-btn') as HTMLButtonElement).dispatchEvent(new Event('click', { bubbles: true }));
+    await flushPromises();
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('a successful rebuild does not throw when SetupNotices is absent (guarded by window.SetupNotices)', async () => {
+    const pmTab = findTab('personaModels');
+    pmTab.render(makeConfig(), [makeModel()], [makePersona()], { persona_models: {} });
+
+    expect((globalThis as unknown as { SetupNotices?: unknown }).SetupNotices).toBeUndefined();
+
+    globalThis.API.rebuildPersonas = vi.fn().mockResolvedValue({});
+    (document.getElementById('pm-rebuild-btn') as HTMLButtonElement).dispatchEvent(new Event('click', { bubbles: true }));
+    await expect(flushPromises()).resolves.toBeUndefined();
+
+    expect(globalThis.pmIsBuilding).toBe(false);
+  });
+
+  it('a rebuild that settles after the tab was left (without discarding) still calls SetupNotices.refresh()', async () => {
+    const pmTab = findTab('personaModels');
+    pmTab.render(makeConfig(), [makeModel()], [makePersona()], { persona_models: {} });
+
+    const refresh = vi.fn();
+    (globalThis as unknown as { SetupNotices: { refresh: () => void } }).SetupNotices = { refresh };
+
+    const def = deferred<unknown>();
+    globalThis.API.rebuildPersonas = vi.fn().mockReturnValue(def.promise);
+    (document.getElementById('pm-rebuild-btn') as HTMLButtonElement).dispatchEvent(new Event('click', { bubbles: true }));
+
+    pmTab.leave(false); // visit token now stale, state preserved (not discarded)
+    def.resolve({});
+    await flushPromises();
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // AC-14: leave(discarded) semantics for Model Registry / Persona Models
 // ---------------------------------------------------------------------------
 

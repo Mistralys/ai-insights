@@ -44,7 +44,7 @@ Run from `mcp-server/`.
 |------|---------|
 | Install | `npm install` |
 | Build | `npm run build` (`tsc`, output in `dist/`; a type error writes nothing because of `noEmitOnError`) |
-| Test | `npm test` (Vitest). The `pretest` hook first runs `node ../scripts/build-personas.js` and then `node ../scripts/build-personas.js --check`, so every full test run rebuilds the persona output and can rewrite tracked files such as `personas/name-mapping.json`. |
+| Test | `npm test` (Vitest). The `pretest` hook first runs `node ../scripts/build-personas.js` and then `node ../scripts/build-personas.js --check`, so every full test run rebuilds the persona output and writes the ignored `personas/name-mapping.json`. |
 | Run a single test | `npx vitest run tests/<path>/<file>.test.ts`, optionally with `-t "<test name>"`. Calling Vitest directly skips the `pretest` persona rebuild. |
 | Watch / coverage | `npm run test:watch`; `npm run test:coverage` (writes the ignored `coverage/` folder) |
 | Lint | None (no ESLint or Prettier configuration) |

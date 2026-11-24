@@ -185,9 +185,10 @@ function pmBuildTabHtml() {
   if (!pmPersonas || pmPersonas.length === 0) {
     return UI.card('Persona Models',
       '<div class="pm-prebuild-state">' +
-        '<p><strong>No persona data available.</strong> Run the persona build to generate persona output files and populate this tab.</p>' +
+        '<p><strong>No persona data available.</strong> Run the persona build to generate persona output files and populate this tab. ' +
+        'This output is generated locally, not in Git.</p>' +
         '<button id="pm-prebuild-rebuild-btn" class="btn btn-primary"' + (pmIsBuilding ? ' disabled' : '') + '>' +
-          (pmIsBuilding ? '<span class="spinner"></span> Rebuilding…' : 'Rebuild Personas') +
+          (pmIsBuilding ? '<span class="spinner"></span> Building…' : 'Build personas') +
         '</button>' +
         '<div id="pm-build-error" style="display:none;"></div>' +
       '</div>'
@@ -655,6 +656,14 @@ function pmDoRebuild() {
   API.rebuildPersonas()
     .then(function (result) {
       pmIsBuilding = false; /* spans visits: always cleared, even when stale (mirrors ecSaveInFlight) */
+      /* Let the global setup-notices banner know the build finished so it can
+         re-fetch and clear itself. Guarded because SetupNotices loads after
+         this module in index.html but is always defined by the time a user
+         can click Rebuild; the guard only protects test harnesses that load
+         this module in isolation. Called unconditionally on success, even
+         when this tab's own visit token has gone stale, since the banner is
+         global GUI-shell state, not tab state. */
+      if (window.SetupNotices) { SetupNotices.refresh(); }
       if (visit !== pmVisit) return;
       /* Re-fetch persona list and assignments to reflect rebuilt state */
       Promise.all([

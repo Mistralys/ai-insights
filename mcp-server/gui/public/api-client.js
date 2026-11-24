@@ -232,6 +232,21 @@ var API = (function () {
     getServerInfo:            function ()             { return request('GET',    '/server-info'); },
 
     /**
+     * Fetch the list of active setup notices (e.g. "personas have not been
+     * built yet").
+     *
+     * Used by the GUI's global setup-notices banner (`setup-notices.js`) to
+     * display a dismissible "Build personas" prompt when a generated build
+     * artefact is missing. Returns an empty `notices` array when nothing is
+     * amiss.
+     *
+     * @returns {Promise<{ notices: Array<{ id: string, title: string, message: string, action?: { kind: string } }> }>}
+     *   Response from `GET /api/setup-notices`.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    getSetupNotices:          function ()             { return request('GET',    '/setup-notices'); },
+
+    /**
      * Fetch the plan document (Markdown) for a project.
      *
      * @param {string} repo - Repository name that owns the project (URI-encoded automatically).
