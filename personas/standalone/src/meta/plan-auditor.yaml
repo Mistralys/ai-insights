@@ -5,6 +5,10 @@ vs_file_name: plan-auditor.agent.md
 id: standalone-plan-auditor
 cc_file_name: plan-auditor.md
 changelog: |
+  1.14.0 (2026-11-25): Includes the new shared `browser-tool` section: the `ai-insights-browser` command (a global
+    Playwright CLI shim) is the browser route on every target, with named sessions, output kept out of the
+    project, sessions closed before handoff, and no self-install. The Browser capability now points to it, so
+    the capability is usable on Claude Code and Deep Agents, which have no browser tool of their own
   1.13.1 (2026-10-28): The Output Location now describes `audit.md` as an input file and names the Planner and the
     Plan Refiner as its readers. Claude Code tells every sub-agent to write no report or findings files and to return
     findings as a reply, but exempts files written as input to another tool; a Plan Auditor dispatched by the Plan

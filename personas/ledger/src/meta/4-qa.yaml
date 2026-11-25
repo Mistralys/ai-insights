@@ -5,6 +5,10 @@ id: ledger-4-qa
 cc_file_name: 4-qa.md
 da_file_name: 4-qa.md
 changelog: |
+  3.11.0 (2026-11-25): Includes the new shared `browser-tool` section: the `ai-insights-browser` command (a global
+    Playwright CLI shim) is the browser route on every target, with named sessions, output kept out of the
+    project, sessions closed before handoff, and no self-install. The Browser capability now points to it, so
+    the capability is usable on Claude Code and Deep Agents, which have no browser tool of their own
   3.10.3 (2026-10-29): The Claude Code handoff block now ends the turn with `HANDED OFF: {next_agent}` after launching
     a successor, so whoever dispatched this agent knows the chain is still running.
   3.10.2 (2026-10-26): Claude Code auto-handoff now passes only `subagent_type`, `description` and `prompt`, and ends the stage once the

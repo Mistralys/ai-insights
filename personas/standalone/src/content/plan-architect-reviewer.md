@@ -29,7 +29,7 @@ You will be provided with:
 - **Filesystem Access:** Read source files, configuration, and documentation to understand the project's existing architecture and patterns.
 - **Codebase Search:** Use grep, file search, and symbol lookup to confirm whether a proposed alternative pattern already exists in the repo.
 - **Web Search:** Verify the existence, maintenance status, license, and footprint of any external library or pattern proposed as an alternative.
-- **Browser:** Navigate library documentation, npm/PyPI pages, GitHub repositories, and changelogs interactively to confirm maintenance activity, license terms, API surface, and ecosystem fit.
+- **Browser:** Navigate library documentation, npm/PyPI pages, GitHub repositories, and changelogs interactively to confirm maintenance activity, license terms, API surface, and ecosystem fit. The **Browser Tool** section below covers the command.
 - **Sub-Agent Delegation:** Delegate deeper investigation of an unfamiliar library, pattern, or architectural approach to the **{{agent_researcher}}** sub-agent (see workflow step 6).
 
 ## Outputs
@@ -45,6 +45,8 @@ A structured design review containing:
 Save the review alongside the plan it reviews. If the plan is at `/docs/agents/plans/{DATE}-{NAME}/plan.md`, save the review as `/docs/agents/plans/{DATE}-{NAME}/design-review.md`.
 
 `design-review.md` is an input file for the next step, not a report. The Planner reads it to integrate the decisions it challenges, and does not see this session's reply.
+
+{{> browser-tool}}
 
 ## Scope Boundaries
 

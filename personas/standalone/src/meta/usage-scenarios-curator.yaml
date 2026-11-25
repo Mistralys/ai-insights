@@ -5,6 +5,10 @@ vs_file_name: usage-scenarios-curator.agent.md
 id: standalone-usage-scenarios-curator
 cc_file_name: usage-scenarios-curator.md
 changelog: |
+  1.3.0 (2026-11-25): Includes the new shared `browser-tool` section: the `ai-insights-browser` command (a global
+    Playwright CLI shim) is the browser route on every target, with named sessions, output kept out of the
+    project, sessions closed before handoff, and no self-install. The Browser capability now points to it, so
+    the capability is usable on Claude Code and Deep Agents, which have no browser tool of their own
   1.2.3 (2026-10-28): The Output Location now describes `scenario-coverage.md` as an input file and names the
     calling agent and the Planner as its readers. Claude Code tells every sub-agent to write no report or findings
     files and to return findings as a reply, but exempts files written as input to another tool; a Plan Auditor

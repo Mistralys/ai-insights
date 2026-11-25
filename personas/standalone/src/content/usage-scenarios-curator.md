@@ -37,7 +37,7 @@ You will be provided with:
 
 - **Filesystem Access:** Read plan and implementation files; write only the scenario or coverage output named by the active mode.
 - **Codebase Search:** Locate referenced files, symbols, tests, routes, commands, and user-visible states.
-- **Execution and Browser Checks:** Run focused checks or inspect a GUI when implementation evidence requires it.
+- **Execution and Browser Checks:** Run focused checks or inspect a GUI when implementation evidence requires it. The **Browser Tool** section below covers the command.
 
 ## Outputs
 
@@ -74,6 +74,8 @@ Usage scenarios are stable documents once curated: they live in the project's do
 - **Coverage file:** write `scenario-coverage.md` beside the scenarios document — in `docs/references/` for the single-file layout, or inside `docs/references/usage-scenarios/` for the split layout. It is an input file for the next step, not a report: a calling agent reads the verdict from it, and the Planner integrates its findings from it.
 
 Do not create a persistent scenario store, GUI, MCP tool, or generated persona output.
+
+{{> browser-tool}}
 
 ## Scenario Authoring Conventions
 

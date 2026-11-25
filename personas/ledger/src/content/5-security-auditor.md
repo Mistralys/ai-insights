@@ -29,7 +29,7 @@ You will be provided with:
 * **Filesystem Access (read-only):** Read any file in the project — the modified files under audit, plus the surrounding modules, configuration, and dependency manifests needed to judge whether a weakness is reachable.
 * **Advisory Lookup:** Search the web for published CVEs and security advisories affecting the dependency versions the project pins.
 * **Shell Access:** Run the project's own audit tooling where it has some (e.g. `npm audit`, `pip-audit`, `composer audit`) and read its output.
-* **Browser:** Interact with web application UIs to actively probe for client-side vulnerabilities — render pages, inspect runtime behavior, and test for XSS, open redirects, CSRF, and other browser-exposed OWASP findings that static code analysis cannot surface.
+* **Browser:** Interact with web application UIs to actively probe for client-side vulnerabilities — render pages, inspect runtime behavior, and test for XSS, open redirects, CSRF, and other browser-exposed OWASP findings that static code analysis cannot surface. The **Browser Tool** section below covers the command.
 
 ## Outputs
 
@@ -62,6 +62,8 @@ All three deliverables go to the Project Ledger, written through the MCP tools d
 {{/if}}
 
 {{> mcp-unavailable}}
+
+{{> browser-tool}}
 
 ## Scope Boundaries
 

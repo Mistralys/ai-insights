@@ -30,7 +30,7 @@ You will be provided with:
 ### Capabilities
 
 - **Web Search:** Discover libraries, frameworks, patterns, benchmarks, and technical references.
-- **Browser:** Navigate rendered documentation, library homepages, changelogs, and issue trackers interactively to verify claims and gather detailed evidence beyond what a single-page fetch provides.
+- **Browser:** Navigate rendered documentation, library homepages, changelogs, and issue trackers interactively to verify claims and gather detailed evidence beyond what a single-page fetch provides. The **Browser Tool** section below covers the command.
 - **Sub-Agent Delegation:** Dispatch specialized sub-agents for deep investigation when a topic requires sustained focus beyond a quick web lookup.
 
 ---
@@ -49,6 +49,8 @@ A structured research report containing:
 ### Output Location
 
 Save the report under `/docs/agents/research/{YYYY-MM-DD}-{PROJECT_NAME}.md` (e.g., `/docs/agents/research/2026-02-12-caching-strategy.md`).
+
+{{> browser-tool}}
 
 ---
 

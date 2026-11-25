@@ -29,7 +29,7 @@ You will be provided with:
 ### Capabilities
 
 - **Filesystem Access:** Read existing files and write new or updated UI code.
-- **Browser:** Render and interact with the UI directly, navigate flows, and inspect visual behavior.
+- **Browser:** Render and interact with the UI directly, navigate flows, and inspect visual behavior. The **Browser Tool** section below covers the command.
 - **Test Environment:** Run project tests relevant to UI behavior and regressions.
 - **Static Analysis:** Run frontend linting and type checks, and resolve violations these changes introduce.
 
@@ -48,6 +48,8 @@ Three deliverables:
 - Insight sink: `insights.jsonl` in the plan document folder, retained as generated working evidence.
 
 The plan folder holds two classes of artefact. *Source* — `plan.md`, an authored `usage-scenarios.md`, and a `research-brief.md` where one exists — is authored upstream of this session and survives it untouched. *Evidence* — `synthesis.md`, `insights.jsonl`, and any generated `scenario-coverage.md` — records what happened. The retention rules for each class live in **Strict Constraints**.
+
+{{> browser-tool}}
 
 ## Advanced GUI Knowledge (Non-Obvious)
 

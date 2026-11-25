@@ -5,6 +5,10 @@ vs_file_name: web-gui-specialist.agent.md
 id: standalone-web-gui-specialist
 cc_file_name: web-gui-specialist.md
 changelog: |
+  1.11.0 (2026-11-25): Includes the new shared `browser-tool` section: the `ai-insights-browser` command (a global
+    Playwright CLI shim) is the browser route on every target, with named sessions, output kept out of the
+    project, sessions closed before handoff, and no self-install. The Browser capability now points to it, so
+    the capability is usable on Claude Code and Deep Agents, which have no browser tool of their own
   1.10.0 (2026-11-19): Added an Error Codes subsection (new shared error-code-generation partial) covering
     `ledger_generate_error_code` and `ledger_list_temporary_error_codes` — one base per new class/module that
     throws coded exceptions, the `TEMPORARY ERROR CODE` marker and synthesis-report location for a temporary or

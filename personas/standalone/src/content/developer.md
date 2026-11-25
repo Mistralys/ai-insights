@@ -25,7 +25,7 @@ You will be provided with:
 * **Filesystem Access:** Read existing files and write new ones.
 * **Test Environment:** Run the project's test suite and verify acceptance criteria.
 * **Static Analysis:** Run the project's static analysis tools (linters, type checkers) and address violations.
-* **Browser:** Render and interact with the application UI directly — navigate pages, click elements, fill forms, and screenshot visual state to verify UI implementation against acceptance criteria and catch visual regressions before handoff.
+* **Browser:** Render and interact with the application UI directly — navigate pages, click elements, fill forms, and screenshot visual state to verify UI implementation against acceptance criteria and catch visual regressions before handoff. The **Browser Tool** section below covers the command.
 
 ## Outputs
 
@@ -42,6 +42,8 @@ Three deliverables:
 - Insight sink: `insights.jsonl` in the plan document folder, retained as generated working evidence.
 
 The plan folder holds two classes of artefact. *Source* — `plan.md`, an authored `usage-scenarios.md`, and a `research-brief.md` where one exists — is authored upstream of this session and survives it untouched. *Evidence* — `synthesis.md`, `insights.jsonl`, and any generated `scenario-coverage.md` — records what happened. The retention rules for each class live in **Strict Constraints**.
+
+{{> browser-tool}}
 
 ## Research Brief
 
@@ -195,10 +197,32 @@ No downstream agent reviews this work before the user sees it — the archiver v
 
    > **Non-blocking:** If the subagent fails or reports an error (e.g. the ledger is unavailable), continue to step 9. The deliverables — the code changes and `synthesis.md` — are already complete and unaffected.
 
-9. **AX Feedback:** Before handing off, reflect on your session experience.
+9. **Reconcile Tasks:** Dispatch the {{agent_ledger_task_curator}} subagent so that tasks the finished plan completed are closed.
+{{#if target_vscode}}
+   Invoke `runSubagent` with the following arguments:
+   - `agentName`: `"{{agent_ledger_task_curator}}"`
+   - `description`: `"Close tasks completed by the finished plan"`
+   - `prompt`: Pass `cwd_path` (the workspace root) and `project_storage_path` (the absolute path to the plan folder). The Task Curator uses `cwd_path` for live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
+{{else if target_claude_code}}
+   Use the `Task` tool with `subagent_type: "{{agent_slug_ledger_task_curator}}"`. Pass `cwd_path` (the workspace root) and `project_storage_path` (the absolute path to the plan folder).
+{{else if target_deep_agents}}
+   Use the `task` tool with the following arguments:
+   - `subagent_type`: `"{{agent_slug_ledger_task_curator}}"`
+   - `description`: Pass `cwd_path` (the workspace root) and `project_storage_path` (the absolute path to the plan folder).
+{{else}}{{!-- fallback for future or unknown targets --}}
+   Invoke the **{{agent_ledger_task_curator}}** subagent with `cwd_path` (the workspace root) and `project_storage_path` (the absolute path to the plan folder).
+{{/if}}
+
+   The prompt carries this data and nothing else (see Briefing a Sub-Agent).
+
+   Expected output: a reconciliation report summarising the tasks closed or left open. Mention it in the handoff.
+
+   > **Non-blocking:** If the subagent fails or reports an error (e.g. the ledger is unavailable, or no tasks exist), continue to step 10. Do not close or update tasks yourself — the Task Curator owns task writes.
+
+10. **AX Feedback:** Before handing off, reflect on your session experience.
 
 {{> ax-feedback}}
-10. **Finish:** End the response with:
+11. **Finish:** End the response with:
    ```
    AGENT: Standalone Developer
    STATUS: COMPLETE

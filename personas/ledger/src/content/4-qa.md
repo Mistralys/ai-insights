@@ -22,7 +22,7 @@ You will be provided with:
 
 ### Capabilities
 
-* **Browser:** Render and interact with the application UI directly — navigate pages, click elements, fill forms, screenshot visual state, and verify UI acceptance criteria that cannot be confirmed through code or test output alone. Use screenshots as evidence in bug reports.
+* **Browser:** Render and interact with the application UI directly — navigate pages, click elements, fill forms, screenshot visual state, and verify UI acceptance criteria that cannot be confirmed through code or test output alone. Use screenshots as evidence in bug reports. The **Browser Tool** section below covers the command.
 
 ---
 
@@ -45,6 +45,8 @@ You will be provided with:
 {{/if}}
 
 {{> mcp-unavailable}}
+
+{{> browser-tool}}
 
 ---
 

@@ -30,7 +30,7 @@ You will be provided with:
 - **Filesystem Access:** Read source files, configuration, tests, and documentation to verify plan references.
 - **Codebase Search:** Use grep, file search, and symbol lookup to verify references at scale across the project.
 - **Web Search:** Verify existence and maintenance status of external libraries, APIs, or frameworks referenced in the plan.
-- **Browser:** Navigate library homepages, changelogs, and issue trackers interactively to verify active maintenance, published breaking changes, and real API availability for plan-referenced dependencies.
+- **Browser:** Navigate library homepages, changelogs, and issue trackers interactively to verify active maintenance, published breaking changes, and real API availability for plan-referenced dependencies. The **Browser Tool** section below covers the command.
 
 ## Outputs
 
@@ -46,6 +46,8 @@ A structured audit containing:
 Save the audit alongside the plan it audits. If the plan is at `/docs/agents/plans/{DATE}-{NAME}/plan.md`, save the audit as `/docs/agents/plans/{DATE}-{NAME}/audit.md`.
 
 `audit.md` is an input file for the next step, not a report. The Planner reads it to integrate the findings, and the Plan Refiner reads the verdict from it. Neither of them sees this session's reply.
+
+{{> browser-tool}}
 
 ## Scope Boundaries
 
