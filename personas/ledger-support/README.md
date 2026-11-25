@@ -60,7 +60,7 @@ Each step is a separate agent invocation. The PM passes structured output from o
 
 ## Persona Catalog
 
-All 9 ledger-support personas, sourced from `personas/ledger-support/src/meta/*.yaml`:
+All ledger-support personas, sourced from `personas/ledger-support/src/meta/*.yaml`:
 
 ### PM Sub-Agent Cluster
 
@@ -80,6 +80,7 @@ All 9 ledger-support personas, sourced from `personas/ledger-support/src/meta/*.
 | `ledger-orchestrator-runner` | Ledger Orchestrator Runner | Pre-flight checks, launch, and monitor an AI Insights orchestrator workflow run from a plan document. | `ledger-orchestrator-runner.agent.md` | `ledger-orchestrator-runner.md` |
 | `ledger-knowledge-archiver` | Ledger Knowledge Archiver | Extract and commit reusable knowledge from completed ledger project folders into the knowledge base. | `ledger-knowledge-archiver.agent.md` | `ledger-knowledge-archiver.md` |
 | `ledger-knowledge-curator` | Ledger Knowledge Curator | Audit knowledge base entries for value, accuracy, and relevance — edit, merge, or delete entries that fail quality thresholds. | `ledger-knowledge-curator.agent.md` | `ledger-knowledge-curator.md` |
+| `ledger-task-curator` | Ledger Task Curator | Steward the ledger task list: close tasks a completed plan has fully shipped, and find, update, complete, reprioritise, recolour or delete tasks on request. | `ledger-task-curator.agent.md` | `ledger-task-curator.md` |
 
 ### Ledger Archive Utilities
 

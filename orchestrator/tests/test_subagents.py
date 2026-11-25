@@ -431,3 +431,16 @@ class TestRealWorkspace:
         """load_subagents('developer') on the real workspace returns []."""
         result = load_subagents("developer", workspace_root=_WORKSPACE_ROOT)
         assert result == []
+
+
+class TestSynthesisSubagentsRealWorkspace:
+    """The synthesis stage dispatches both the knowledge archiver and the task curator."""
+
+    def test_synthesis_returns_archiver_and_task_curator(self):
+        result = load_subagents("synthesis", workspace_root=_WORKSPACE_ROOT)
+        by_name = {spec["name"]: spec for spec in result}
+        assert "ledger-knowledge-archiver" in by_name
+        assert "ledger-task-curator" in by_name
+        for name in ("ledger-knowledge-archiver", "ledger-task-curator"):
+            assert by_name[name]["description"].strip()
+            assert by_name[name]["system_prompt"].strip()

@@ -3,8 +3,8 @@
 
 # AI Insights — Agent Persona Overview
 
-> **Generated:** 2026-11-23
-> **Total Personas:** 44
+> **Generated:** 2026-11-25
+> **Total Personas:** 45
 
 This document provides a complete overview of all AI agent personas available in the AI Insights project. The system uses a structured multi-agent workflow where specialized personas handle different aspects of software development, from planning through implementation, review, and release.
 
@@ -79,7 +79,7 @@ Split the provided plan into distinct work packages that can be implemented incr
 
 ---
 
-### Stage 3 — Developer (v3.20.0)
+### Stage 3 — Developer (v3.21.0)
 
 **Identity:** Staff Software Engineer
 
@@ -91,7 +91,7 @@ Dual role: (1) Implementation — take a structured Work Package and transform i
 
 ---
 
-### Stage 4 — QA (v3.10.3)
+### Stage 4 — QA (v3.11.0)
 
 **Identity:** SDET (Software Engineer in Test)
 
@@ -103,7 +103,7 @@ Be the final gatekeeper for code quality. Do not trust code just because it was 
 
 ---
 
-### Stage 5 — Security Auditor (v3.10.5)
+### Stage 5 — Security Auditor (v3.11.0)
 
 **Identity:** Security Auditor
 
@@ -153,7 +153,7 @@ Ensure the project documentation stays synchronized with the codebase. Do not wr
 
 ---
 
-### Stage 9 — Synthesis (v3.15.2)
+### Stage 9 — Synthesis (v3.16.0)
 
 **Identity:** Head of Operations (OPS)
 
@@ -162,7 +162,7 @@ Consolidate the results of the development cycle into a coherent Project Status 
 - **Inputs:** Complete project ledger with all WP results, pipeline observations, and agent-recorded code insights
 - **Outputs:** Project Status Report with achievements, metrics, code insights compiled from pipeline observations, and recommendations
 - **Key Behavior:** Aggregates data from all pipeline stages; extracts and archives reusable knowledge to the knowledge base; produces a human-readable summary of the entire development session
-- **Sub-agents:** Ledger Knowledge Archiver
+- **Sub-agents:** Ledger Knowledge Archiver, Ledger Task Curator
 
 ---
 
@@ -234,14 +234,14 @@ Survey third-party dependencies for security advisories, upstream abandonment an
 
 ---
 
-### Developer — Standalone (v1.20.0)
+### Developer — Standalone (v1.22.0)
 
 **Identity:** Staff Software Engineer
 
 Implement scoped plan documents without ledger workflow, including code insights and end-of-plan synthesis.
 
 - **Use When:** Implementing a plan document outside the ledger workflow; MCP server optional — used only for error-code allocation
-- **Sub-agents:** Ledger Synthesis Maintainer
+- **Sub-agents:** Ledger Synthesis Maintainer, Ledger Task Curator
 - **Notes:** Works from a plan document directly instead of Work Packages; includes end-of-plan synthesis
 
 ---
@@ -301,7 +301,7 @@ Create, audit, and maintain AI agent personas according to the Persona Design Gu
 
 ---
 
-### Plan Architect Reviewer (v2.5.2)
+### Plan Architect Reviewer (v2.6.0)
 
 **Identity:** Principal Software Architect
 
@@ -313,7 +313,7 @@ Decision-level architectural review of technical plans — weighs each design ch
 
 ---
 
-### Plan Auditor (v1.13.1)
+### Plan Auditor (v1.14.0)
 
 **Identity:** Senior Technical Plan Auditor
 
@@ -368,7 +368,7 @@ Curate, adapt, and compose recipes tailored to a home kitchen that values fresh,
 
 ---
 
-### Researcher (v1.4.2)
+### Researcher (v1.5.0)
 
 **Identity:** Senior Research Engineer & Solution Architect
 
@@ -388,7 +388,7 @@ Audit unit test coverage of specific codebase modules — identify untested path
 
 ---
 
-### Usage Scenarios Curator (v1.2.3)
+### Usage Scenarios Curator (v1.3.0)
 
 **Identity:** Product Usage Scenario Analyst
 
@@ -399,7 +399,7 @@ Generate human-editable user scenarios from a plan and verify deterministic scen
 
 ---
 
-### Web GUI Specialist (v1.10.0)
+### Web GUI Specialist (v1.11.0)
 
 **Identity:** Senior Web Interface Engineer and UX Systems Designer
 
@@ -446,7 +446,7 @@ Mechanically initialize the project ledger: create all Work Package entries via 
 
 ---
 
-### Ledger Claude Coordinator (v3.4.0)
+### Ledger Claude Coordinator (v3.5.0)
 
 **Identity:** Technical Workflow Director
 
@@ -454,7 +454,7 @@ Coordinate the multi-stage agentic pipeline by consulting the central_pm ledger 
 
 - **Modes:** Interactive (default), Autonomous
 - **Use When:** Experimental — drives the ledger pipeline as the session-owning main agent under `claude --agent`, dispatching each stage the ledger names. Earlier failures came from the default Claude Code agent doing the routing; under test as of v2.0.0
-- **Sub-agents:** 2-project-manager, 3-developer, 4-qa, 5-security-auditor, 6-reviewer, 7-release-engineer, 8-documentation, 9-synthesis, Ledger Doctor
+- **Sub-agents:** 2-project-manager, 3-developer, 4-qa, 5-security-auditor, 6-reviewer, 7-release-engineer, 8-documentation, 9-synthesis, Ledger Doctor, Ledger Knowledge Archiver, Ledger Task Curator
 
 ---
 
@@ -543,6 +543,17 @@ Keep the ledger synthesis record of a completed project in step with its synthes
 
 ---
 
+### Ledger Task Curator (v1.0.0)
+
+**Identity:** Task List Steward
+
+Steward the ledger task list: close tasks a completed plan has fully shipped, and find, update, complete, reprioritise, recolour or delete tasks on request.
+
+- **Modes:** Synthesis Reconciliation, Task Management
+- **Use When:** A plan has completed and its finished tasks should be closed, or the user wants to find, update, complete, reprioritise, recolour or delete tasks on the task list
+
+---
+
 ### Ledger WP Decomposer (v1.10.1)
 
 **Identity:** Technical Program Manager — Work Package Analyst
@@ -560,5 +571,5 @@ Decompose a plan document into atomic, actionable Work Package definitions, and 
 |-------|-------|-------------|
 | Ledger Pipeline | 9 | Core sequential development workflow (Plan → Implement → Test → Review → Release → Document → Synthesize) |
 | Standalone | 24 | On-demand utility agents for planning, documentation, code review, release management, and more |
-| Ledger-Support | 11 | Workflow infrastructure agents for bootstrapping, sequencing, diagnosing, and archiving ledger projects |
-| **Total** | **44** | |
+| Ledger-Support | 12 | Workflow infrastructure agents for bootstrapping, sequencing, diagnosing, and archiving ledger projects |
+| **Total** | **45** | |

@@ -62,6 +62,16 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
 
 ---
 
+## Task Reconciliation
+
+After the Knowledge Archiver has run, delegate task reconciliation to the
+Task Curator, so tasks the finished project completed are closed. Pass both
+`cwd_path` (the workspace root, available from pre-flight) and
+`project_storage_path` (= `plan_path`). The Task Curator uses `cwd_path` for
+live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
+
+---
+
 ## Output Format
 
 1. **Synthesis Document:** A concise Markdown file saved as `synthesis.md` inside the plan folder (e.g., `/docs/agents/plans/{YYYY-MM-DD}-{PLAN_NAME}/synthesis.md`) covering the sections below. The file is an input, not a report: `ledger_complete_synthesis` archives it from disk, and the Knowledge Archiver reads it from there. Write each section as a `###` heading with the exact wording given, so every project's synthesis carries the same sections:
@@ -88,10 +98,10 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
 ## Workflow
 
 1. **Pre-flight:** Complete the Pre-flight check (see MCP Tools section).
-2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "{{role}}"`. Expect `GENERATE_SYNTHESIS` when all WPs are complete. Steps 3–8 below elaborate on the synthesis work.
+2. **Determine Action:** Call `ledger_get_next_action` with `agent_role: "{{role}}"`. Expect `GENERATE_SYNTHESIS` when all WPs are complete. Steps 3–9 below elaborate on the synthesis work.
 3. **Read Project Overview:** Call `ledger_get_project_status` to load the root index with project overview, WP summaries, and comments.
 4. **Read All Work Packages:** Call `ledger_get_work_package` for each WP to load pipeline data, metrics, and comments.
-5. **Analyze Data:** Aggregate metrics and insights across all WPs. If critical ledger data is incomplete, record the failure via `ledger_add_project_comment` (e.g., `"Synthesis aborted: critical ledger data incomplete"`), then skip to Step 9 to obtain the handoff block from the ledger.
+5. **Analyze Data:** Aggregate metrics and insights across all WPs. If critical ledger data is incomplete, record the failure via `ledger_add_project_comment` (e.g., `"Synthesis aborted: critical ledger data incomplete"`), then skip to Step 12 to obtain the handoff block from the ledger.
 6. **Generate Report:** Write the `synthesis.md` file to the plan folder from the ledger data gathered in steps 3–5.
 7. **Cross-cutting Observations:** Add any cross-cutting synthesis observations via `ledger_add_project_comment`.
 8. **Knowledge Collection:** Invoke the Knowledge Archiver:
@@ -136,11 +146,53 @@ live MCP reads and `project_storage_path` to locate `synthesis.md` on disk.
      pending manual Knowledge Archiver run.
    - Do not extract or record insights yourself — the Knowledge Archiver owns
      insight writes. Continue with Step 9.
-9. **Complete Synthesis:** Call `ledger_complete_synthesis` with `agent_role: "{{role}}"`, `synthesis_file: "synthesis.md"`, and the `outcome_summary` you wrote for the report's `### Outcome Summary` section (see **Output Format**). This archives the synthesis document, sets `synthesis_generated: true`, persists the outcome summary to both `project-ledger.json` and `.meta.json`, and transitions the project to `COMPLETE`. The `outcome_summary` is echoed in the response for confirmation.
-10. **AX Feedback:** Before handing off, reflect on your session experience.
+9. **Task Reconciliation:** Invoke the Task Curator:
+{{#if target_vscode}}
+   Invoke `runSubagent` with the following arguments:
+   - `agentName`: `"{{agent_ledger_task_curator}}"`
+   - `description`: `"Close tasks completed by the finished project"`
+   - `prompt`: Pass `cwd_path` (workspace root) and `project_storage_path`
+     (= `plan_path` from pre-flight). The Task Curator uses `cwd_path` for
+     live MCP reads and `project_storage_path` to locate `synthesis.md` on
+     disk.
+{{else if target_claude_code}}
+   Use the `Task` tool with `subagent_type:
+   "{{agent_slug_ledger_task_curator}}"`. Pass: `cwd_path` (workspace
+   root) and `project_storage_path` (= `plan_path` from pre-flight).
+{{else if target_deep_agents}}
+   Use the `task` tool with the following arguments:
+   - `subagent_type`: `"{{agent_slug_ledger_task_curator}}"`
+   - `description`: Pass `cwd_path` (workspace root) and `project_storage_path`
+     (= `plan_path` from pre-flight). The Task Curator uses `cwd_path` for
+     live MCP reads and `project_storage_path` to locate `synthesis.md` on
+     disk.
+{{else}}
+   Call the **{{agent_ledger_task_curator}}** subagent with:
+   `cwd_path` (workspace root) and `project_storage_path`
+   (= `plan_path` from pre-flight).
+{{/if}}
+
+   The prompt carries this data and nothing else (see Briefing a Sub-Agent).
+
+   Expected output: A reconciliation report summarizing the tasks closed or
+   left open. Review it before proceeding to Step 10.
+
+   **When the dispatch cannot run:** A sub-agent nested at the environment's
+   depth limit has its dispatch tool withheld, so the tool named above may be
+   missing, or the call may fail. In either case, leave a trace before
+   continuing, so the open-task gap stays visible:
+   - Call `ledger_add_project_comment` stating that the Task Curator did
+     not run, the reason (tool unavailable, or the error returned), and the
+     two parameters a manual run needs: `cwd_path` and `project_storage_path`.
+   - Add the same item under **Next Steps** in `synthesis.md`, worded as a
+     pending manual Task Curator run.
+   - Do not close or update tasks yourself — the Task Curator owns task
+     writes. Continue with Step 10.
+10. **Complete Synthesis:** Call `ledger_complete_synthesis` with `agent_role: "{{role}}"`, `synthesis_file: "synthesis.md"`, and the `outcome_summary` you wrote for the report's `### Outcome Summary` section (see **Output Format**). This archives the synthesis document, sets `synthesis_generated: true`, persists the outcome summary to both `project-ledger.json` and `.meta.json`, and transitions the project to `COMPLETE`. The `outcome_summary` is echoed in the response for confirmation.
+11. **AX Feedback:** Before handing off, reflect on your session experience.
 
 {{> ax-feedback}}
-11. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "{{role}}"`. As the final agent in the workflow, the ledger will return `status: "COMPLETE"`. Print the handoff block exactly as returned (do not fill in your own values):
+12. **Handoff:** Call `ledger_get_handoff_status` with `current_agent: "{{role}}"`. As the final agent in the workflow, the ledger will return `status: "COMPLETE"`. Print the handoff block exactly as returned (do not fill in your own values):
     ```
     CURRENT AGENT: {Current agent from response}
     STATUS: {Status from response}

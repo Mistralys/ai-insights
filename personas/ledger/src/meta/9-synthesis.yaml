@@ -6,6 +6,9 @@ cc_file_name: 9-synthesis.md
 da_file_name: 9-synthesis.md
 
 changelog: |
+  3.16.0 (2026-11-25): Added a Task Reconciliation section and workflow step 9 that dispatches the Task Curator
+    after the Knowledge Archiver, with the same depth-limit fallback (project comment plus a Next Steps item).
+    Complete Synthesis, AX Feedback and Handoff are now steps 10, 11 and 12, with cross-references corrected
   3.15.2 (2026-10-29): The shared `subagent-wait-claude-code` section now continues on a sub-agent's hand-back when it
     carries the final report, and waits for the task notification only when the report says another agent is still
     running. Claude Code records the notification that follows a final hand-back without starting a turn, so the old
@@ -84,6 +87,7 @@ cc_tools:
 
 subagents:
   - ledger-knowledge-archiver
+  - ledger-task-curator
 
 has_mcp: true
 has_detect_project: true

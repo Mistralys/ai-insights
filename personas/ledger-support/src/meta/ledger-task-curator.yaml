@@ -1,0 +1,32 @@
+slug: ledger-task-curator
+name: "Ledger Task Curator"
+description: "Steward the ledger task list: close tasks a completed plan has fully shipped, and find, update, complete, reprioritise, recolour or delete tasks on request."
+vs_file_name: ledger-task-curator.agent.md
+id: ledger-support-task-curator
+cc_file_name: ledger-task-curator.md
+changelog: |
+  1.0.0 (2026-11-23): Initial release
+
+tools:
+  - vscode
+  - read
+  - search
+  - central_pm/*
+
+# cc_tools: explicit list required — the builder resolves cc_tools from
+# cc_tools → tools (never default_cc_tools), so the VS Code tools list
+# would be used otherwise, which carries `central_pm/*` (VS Code-only
+# syntax that Claude Code's `--agent` tool matcher never resolves).
+# No Edit or Write: the persona changes tasks through MCP tools only.
+cc_tools:
+  - Read
+  - Grep
+  - Glob
+  - mcp__central_pm
+
+# overview metadata
+identity: "Task List Steward"
+use_when: "A plan has completed and its finished tasks should be closed, or the user wants to find, update, complete, reprioritise, recolour or delete tasks on the task list"
+modes: |
+  Synthesis Reconciliation
+  Task Management

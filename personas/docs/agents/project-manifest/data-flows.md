@@ -417,3 +417,14 @@ node scripts/generate-persona-audit.js --guide-version 3.0
 ```
 
 Also available via `node scripts/cli.js generate-persona-audit`.
+
+## 6. Ledger Task Curator Flow
+
+The Ledger Task Curator (`ledger-task-curator`, suite `ledger-support`) is the single point of contact for the ledger task list, for both users and agents. It reaches tasks only through the six task tools of the `central_pm` MCP server (`ledger_add_task`, `ledger_get_task`, `ledger_list_tasks`, `ledger_search_tasks`, `ledger_update_task`, `ledger_delete_task`). Its `cc_tools` grant no Edit or Write, so it never touches files.
+
+| Mode | Triggered by | Inputs | Task mutations |
+|---|---|---|---|
+| Synthesis Reconciliation | Synthesis dispatches it after the synthesis report is written | `cwd_path`, `project_storage_path`; reads `synthesis.md`, `plan.md`, `request.md` | Closes a task (`completed: true`, `completion_source` = plan slug) only when the synthesis states the whole scope shipped. Partial matches are reported as candidates. Never creates, deletes, recolours or edits text. |
+| Task Management | A user or agent request | Explicit store choice when several stores exist | Find, update, complete and (on explicit request) reprioritise or recolour; delete only after explicit confirmation. |
+
+Both modes end with the Task Reconciliation Report (terms searched, tasks closed, candidates left open, store errors). In Task Management mode the report's Plan field may be omitted.
