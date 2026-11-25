@@ -27,7 +27,8 @@
 import fs from 'fs';
 import { spawnSync } from 'child_process';
 import {
-  getBrowserCliEntry, prepareBrowserInvocation, absolutizeHelpOutput, BROWSER_COMMAND,
+  getBrowserCliEntry, prepareBrowserInvocation, absolutizeHelpOutput, appendShimHelp,
+  inlineSnapshotOutput, withStatusLine, BROWSER_COMMAND,
 } from './lib/browser-tool.js';
 
 const invocation = prepareBrowserInvocation({ argv: process.argv.slice(2) });
@@ -52,9 +53,11 @@ try {
   console.error(`${BROWSER_COMMAND}: could not create output directory ${invocation.outputDir}: ${err.message}`);
 }
 
-// Global help is short and printed at once, so it is buffered for the
-// `Agent skill:` rewrite; every other command streams straight through.
-const stdout = invocation.rewriteHelp ? 'pipe' : 'inherit';
+// Help is short and printed at once, and the inline mode has to see the whole
+// output to rewrite it, so both are buffered; every other command streams
+// straight through.
+const { inline } = invocation;
+const stdout = invocation.rewriteHelp || inline ? 'pipe' : 'inherit';
 const result = spawnSync(process.execPath, [entry, ...invocation.args], {
   stdio: ['inherit', stdout, 'inherit'],
   env: invocation.env,
@@ -66,9 +69,26 @@ if (result.error) {
   process.exit(1);
 }
 const status = result.status ?? 1;
+
+let output = null;
 if (invocation.rewriteHelp && result.stdout) {
+  output = absolutizeHelpOutput(result.stdout);
+  if (invocation.shimHelp) output = appendShimHelp(output);
+} else if (inline) {
+  output = result.stdout ?? '';
+  if (inline.snapshot) {
+    const inlined = inlineSnapshotOutput(output, { json: inline.json, raw: inline.raw });
+    output = inlined.output;
+    for (const warning of inlined.warnings) console.error(warning);
+  }
+  const stated = withStatusLine(output, status, { json: inline.json });
+  output = stated.output;
+  if (stated.notice) console.error(stated.notice);
+}
+
+if (output !== null) {
   // Exit only once the write has flushed: pipe writes can be asynchronous.
-  process.stdout.write(absolutizeHelpOutput(result.stdout), () => process.exit(status));
+  process.stdout.write(output, () => process.exit(status));
 } else {
   process.exit(status);
 }

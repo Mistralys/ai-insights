@@ -26,6 +26,9 @@
  *   browserOutputDir(session, tmpDir?) — per-session output directory outside the project
  *   prepareBrowserInvocation(opts) — apply the shim's guards; returns forwarded args + env, or an error
  *   absolutizeHelpOutput(output, cwd?) — make the global help's `Agent skill:` path absolute
+ *   appendShimHelp(output)     — append the shim's own notes to the global help
+ *   inlineSnapshotOutput(output, opts?) — replace a snapshot file link with the snapshot itself
+ *   withStatusLine(output, exitCode, opts?) — put an ok / failed status first in the output
  *
  * Dependency direction: this file MUST NOT import from scripts/cli.js
  * (it is imported by scripts/lib/health-checks.js).
@@ -190,7 +193,17 @@ const ATTACH_COMMAND = 'attach';
  * its value (Playwright parses with minimist), so the token after it is not
  * taken as an operand.
  */
-const VALUELESS_GLOBAL_FLAGS = Object.freeze(['--help', '--version', '--json', '--raw', '--force']);
+const VALUELESS_GLOBAL_FLAGS = Object.freeze(['--help', '--version', '--json', '--raw', '--force', '--inline-snapshot']);
+
+/**
+ * Shim-only flag (never forwarded): print an ok / failed status line first and
+ * the page snapshot instead of the link to its file. The Playwright CLI writes
+ * the snapshot of every action command to a file and offers no switch for it.
+ */
+export const INLINE_FLAG = '--inline-snapshot';
+
+/** Environment variable that turns the inline mode on for every call (`1` or `true`). */
+export const INLINE_ENV = 'AI_INSIGHTS_BROWSER_INLINE_SNAPSHOT';
 
 /**
  * Pick the session name, command, operands and help/version flags out of an
@@ -291,11 +304,23 @@ export function browserOutputDir(session, tmpDir = os.tmpdir()) {
  *  3. PLAYWRIGHT_MCP_FILE_PATHS defaults to "absolute", so file references
  *     in the output are absolute paths; a value the caller set is kept.
  *  4. close-all / kill-all need --force, which is stripped before forwarding.
+ *  5. --inline-snapshot (or INLINE_ENV) asks for the inline mode; the flag is
+ *     recognised in any position before a `--` terminator, and stripped before
+ *     forwarding.
  *
- * `rewriteHelp` is true when the CLI will print its global help, whose
- * `Agent skill:` line the shim makes absolute (absolutizeHelpOutput()).
+ * `rewriteHelp` is true when the CLI will print help, which the shim buffers:
+ * the global help's `Agent skill:` line is made absolute (absolutizeHelpOutput())
+ * and, when `shimHelp` is true as well, the shim's own notes are appended
+ * (appendShimHelp()).
+ *
+ * `inline` is null unless the inline mode applies to this call (it never does
+ * for help, version or a call with no command). Otherwise it carries how to
+ * render the output: `json` / `raw` follow the CLI's output flags, and
+ * `snapshot` is false for `snapshot --filename`, where the caller asked for the
+ * file and the link stays.
  * @param {{ argv: string[], env?: NodeJS.ProcessEnv, tmpDir?: string }} opts
- * @returns {{ ok: true, args: string[], env: NodeJS.ProcessEnv, outputDir: string, rewriteHelp: boolean }
+ * @returns {{ ok: true, args: string[], env: NodeJS.ProcessEnv, outputDir: string, rewriteHelp: boolean,
+ *             shimHelp: boolean, inline: { json: boolean, raw: boolean, snapshot: boolean } | null }
  *         | { ok: false, message: string }}
  */
 export function prepareBrowserInvocation({ argv, env = process.env, tmpDir = os.tmpdir() }) {
@@ -304,7 +329,14 @@ export function prepareBrowserInvocation({ argv, env = process.env, tmpDir = os.
   const exempt  = parsed.help || parsed.version || parsed.command === null
     || SESSIONLESS_COMMANDS.includes(parsed.command);
 
-  let args = [...argv];
+  // The inline flag is the shim's in any position, as `--json` and `--raw` are
+  // the CLI's. The CLI rejects every operand that looks like an option
+  // (`fill e3 --text` fails with "Unknown option"), so no legitimate argument
+  // is lost to the strip. Like the parser, it stops at `--`.
+  const terminator = argv.indexOf('--');
+  const optionEnd  = terminator === -1 ? argv.length : terminator;
+  let args = argv.filter((a, i) => !(a === INLINE_FLAG && i < optionEnd));
+  const flagGiven = args.length !== argv.length;
 
   if (!parsed.help && TEARDOWN_COMMANDS.includes(parsed.command)) {
     if (!args.includes('--force')) {
@@ -320,12 +352,25 @@ export function prepareBrowserInvocation({ argv, env = process.env, tmpDir = os.
   const outputDir = env[OUTPUT_DIR_ENV] || browserOutputDir(session || SHARED_SESSION_NAME, tmpDir);
   const filePaths = env[FILE_PATHS_ENV] || 'absolute';
   const rewriteHelp = !parsed.version && (parsed.help || parsed.command === null);
+
+  const wantsInline = flagGiven || /^(1|true)$/i.test(env[INLINE_ENV] ?? '');
+  const inline = wantsInline && !rewriteHelp && !parsed.version
+    ? {
+        json: args.includes('--json'),
+        raw: args.includes('--raw'),
+        snapshot: !(parsed.command === 'snapshot'
+          && args.some((a) => a === '--filename' || a.startsWith('--filename='))),
+      }
+    : null;
+
   return {
     ok: true,
     args,
     env: { ...env, [OUTPUT_DIR_ENV]: outputDir, [FILE_PATHS_ENV]: filePaths },
     outputDir,
     rewriteHelp,
+    shimHelp: rewriteHelp && !parsed.version && parsed.command === null,
+    inline,
   };
 }
 
@@ -340,25 +385,135 @@ export function prepareBrowserInvocation({ argv, env = process.env, tmpDir = os.
  * @returns {string}
  */
 export function absolutizeHelpOutput(output, cwd = process.cwd()) {
-  const rewrite = (text) => text.replace(
+  return mapHelpText(output, (text) => text.replace(
     /^(Agent skill: )(.+?)(\r?)$/m,
     (_, label, file, cr) => `${label}${path.resolve(cwd, file)}${cr}`,
-  );
+  ));
+}
 
+/**
+ * Apply `transform` to the help text, whether the output is the plain text
+ * help or the `--json` form (`{ "help": "..." }`, re-emitted in Playwright's
+ * own 2-space format). Output that is neither, or that `transform` leaves
+ * unchanged, is returned as it came.
+ * @param {string} output
+ * @param {(text: string) => string} transform
+ * @returns {string}
+ */
+function mapHelpText(output, transform) {
   const trimmed = output.trim();
   if (trimmed.startsWith('{')) {
     try {
       const value = JSON.parse(trimmed);
       if (value && typeof value.help === 'string') {
-        const help = rewrite(value.help);
+        const help = transform(value.help);
         if (help === value.help) return output;
-        const eol = output.endsWith('\r\n') ? '\r\n' : '\n';
-        return JSON.stringify({ ...value, help }, null, 2) + eol;
+        return JSON.stringify({ ...value, help }, null, 2) + eolOf(output);
       }
     } catch { /* not JSON — fall through to the text form */ }
     return output;
   }
-  return rewrite(output);
+  return transform(output);
+}
+
+function eolOf(output) {
+  return output.endsWith('\r\n') ? '\r\n' : '\n';
+}
+
+/**
+ * Append the shim's own notes to the global help, so the options and guards
+ * the Playwright CLI knows nothing about are discoverable from `--help`.
+ * @param {string} output  Captured stdout of the global help invocation
+ * @returns {string}
+ */
+export function appendShimHelp(output) {
+  return mapHelpText(output, (text) => `${text.replace(/\s+$/, '')}\n\n${shimHelpNotes()}\n`);
+}
+
+function shimHelpNotes() {
+  return [
+    `${BROWSER_COMMAND} (shim) notes:`,
+    `  Name a session on every call: -s=NAME (or set ${SESSION_ENV}=NAME); -s=${SHARED_SESSION_NAME} opts into the shared one.`,
+    `  ${INLINE_FLAG}  Print "${BROWSER_COMMAND}: ok" or "${BROWSER_COMMAND}: failed (exit N)" first, and the`,
+    `                     page snapshot in place of the link to its file. Set ${INLINE_ENV}=1 to`,
+    '                     make it the default.',
+    '  close-all / kill-all end every session on the machine and need --force.',
+    `  Usage notes: ${path.join(WORKSPACE_ROOT, 'docs', 'references', 'development.md')} (section "Browser Tool for Agents")`,
+  ].join('\n');
+}
+
+/**
+ * Replace the link to a snapshot file with the snapshot itself, in the form
+ * the Playwright CLI uses when it prints a snapshot inline: a ```yaml fence in
+ * text output (no fence with `raw`), the tree as a string in `--json` output.
+ * A file that cannot be read leaves its link in place and adds a warning.
+ * @param {string} output  Captured stdout of a command
+ * @param {{ json?: boolean, raw?: boolean, cwd?: string, readFile?: (file: string) => string }} [opts]
+ * @returns {{ output: string, warnings: string[] }}
+ */
+export function inlineSnapshotOutput(output, {
+  json = false,
+  raw = false,
+  cwd = process.cwd(),
+  readFile = (file) => fs.readFileSync(file, 'utf8'),
+} = {}) {
+  const warnings = [];
+  const load = (file) => {
+    try {
+      return readFile(path.resolve(cwd, file)).replace(/\s+$/, '');
+    } catch (err) {
+      warnings.push(`${BROWSER_COMMAND}: could not read snapshot file ${file}: ${err.message}`);
+      return null;
+    }
+  };
+
+  if (json) {
+    try {
+      const value = JSON.parse(output);
+      const file  = value?.snapshot?.file;
+      if (typeof file === 'string') {
+        const tree = load(file);
+        if (tree !== null) {
+          return { output: JSON.stringify({ ...value, snapshot: tree }, null, 2) + eolOf(output), warnings };
+        }
+      }
+    } catch { /* not JSON — leave the output as it is */ }
+    return { output, warnings };
+  }
+
+  const replaced = output.replace(/^- \[Snapshot\]\((.+)\)(\r?)$/gm, (link, file, cr) => {
+    const tree = load(file);
+    if (tree === null) return link;
+    return (raw ? tree : `\`\`\`yaml\n${tree}\n\`\`\``) + cr;
+  });
+  return { output: replaced, warnings };
+}
+
+/**
+ * Put the outcome of the command first in its output, so a reader who pipes
+ * it through `head` or `grep` still sees whether it worked: a line
+ * `ai-insights-browser: ok` / `ai-insights-browser: failed (exit N)`, or a
+ * leading `status` key in `--json` output. `--json` output that is not a JSON
+ * object (a failure the CLI printed as plain text) is left as it is, so stdout
+ * stays machine-readable, and the status line comes back as `notice` for the
+ * caller to print on stderr.
+ * @param {string} output
+ * @param {number} exitCode
+ * @param {{ json?: boolean }} [opts]
+ * @returns {{ output: string, notice: string | null }}
+ */
+export function withStatusLine(output, exitCode, { json = false } = {}) {
+  const status = exitCode === 0 ? 'ok' : `failed (exit ${exitCode})`;
+  if (json) {
+    try {
+      const value = JSON.parse(output);
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        return { output: JSON.stringify({ status, ...value }, null, 2) + eolOf(output), notice: null };
+      }
+    } catch { /* not JSON — leave stdout alone */ }
+    return { output, notice: `${BROWSER_COMMAND}: ${status}` };
+  }
+  return { output: `${BROWSER_COMMAND}: ${status}\n${output}`, notice: null };
 }
 
 function sessionMessage() {
