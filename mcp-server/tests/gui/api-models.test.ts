@@ -713,11 +713,11 @@ describe('api-models.ts — Model Registry API Handlers', () => {
         code: 'CONFLICT',
       });
 
-      // Cleanup: wait for the first build to finish (it'll time out in CI, so force-kill is not needed)
-      // We reset the flag to prevent leaking state
+      // Cleanup: wait for the first build's child process to exit. On Windows a
+      // live child keeps its cwd (the temp dir) locked, so afterEach's rm()
+      // would fail with EBUSY if the process were abandoned.
+      await firstBuild;
       _resetBuildInProgress();
-      // Abandon the firstBuild promise — it will eventually resolve
-      firstBuild.catch(() => { /* ignore */ });
     });
 
     it('AC-13: clears buildInProgress flag even when process errors', async () => {

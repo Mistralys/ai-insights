@@ -110,6 +110,8 @@ export async function migrateToNamespacedLayout(ledgerRoot: string): Promise<Mig
       }
       // Stub is empty — safe to remove and retry.
       try {
+        // WINDOWS: recursive rm can hit EBUSY/EPERM; consider rm's maxRetries/retryDelay
+        // options (see src/utils/fs-retry.ts).
         await rm(newDir, { recursive: true });
       } catch (rmErr) {
         errors.push({ slug: entry, error: `Failed to remove empty stub at '${newDir}': ${(rmErr as Error).message}` });
@@ -156,6 +158,8 @@ export async function migrateToNamespacedLayout(ledgerRoot: string): Promise<Mig
  */
 async function moveDirCrossDevice(src: string, dest: string): Promise<void> {
   try {
+    // WINDOWS: may fail with EPERM/EBUSY under transient locks. Deliberately not
+    // retried; see renameWithRetry() in src/utils/fs-retry.ts if that is needed.
     await rename(src, dest);
   } catch (err) {
     const nodeErr = err as NodeJS.ErrnoException;
@@ -216,6 +220,8 @@ async function dirExists(dirPath: string): Promise<boolean> {
 
 async function removeSilent(filePath: string): Promise<void> {
   try {
+    // WINDOWS: unlink can fail with EPERM/EBUSY while another process holds the file;
+    // the catch below swallows it. See src/utils/fs-retry.ts for the retry approach.
     await unlink(filePath);
   } catch {
     // Ignore — file may not exist.

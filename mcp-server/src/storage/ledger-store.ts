@@ -717,6 +717,9 @@ export class LedgerStore {
       }
       // ENOENT means the target does not exist — safe to proceed.
     }
+    // WINDOWS: a directory rename fails with EPERM/EBUSY while any handle, scanner or
+    // indexer is inside it. Not retried here on purpose (a retry could mask a real
+    // lock); see renameWithRetry() in src/utils/fs-retry.ts before changing this.
     await rename(this.storageDir, newStorageDir);
     const newMetaPath = join(newStorageDir, '.meta.json');
     const rawMeta = JSON.parse(await readFile(newMetaPath, 'utf-8')) as Record<string, unknown>;

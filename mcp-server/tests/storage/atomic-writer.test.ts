@@ -154,4 +154,67 @@ describe('atomicWriteJson', () => {
     const entries = await readdir(tempDir);
     expect(entries).toEqual([]);
   });
+
+  describe('transient rename errors on Windows', () => {
+    const originalPlatform = process.platform;
+
+    function setPlatform(value: string): void {
+      Object.defineProperty(process, 'platform', { value, configurable: true });
+    }
+
+    afterEach(() => {
+      setPlatform(originalPlatform);
+    });
+
+    function transientError(code: string): NodeJS.ErrnoException {
+      return Object.assign(new Error(`${code}: simulated`), { code });
+    }
+
+    it('retries a transient EPERM rename failure and succeeds on win32', async () => {
+      setPlatform('win32');
+      const filePath = join(tempDir, 'retry.json');
+      mockRename.mockImplementationOnce(async () => {
+        throw transientError('EPERM');
+      });
+
+      await atomicWriteJson(filePath, { ok: true });
+
+      expect(JSON.parse(await readFile(filePath, 'utf-8'))).toEqual({ ok: true });
+      expect(mockRename).toHaveBeenCalledTimes(2);
+    });
+
+    it('does not retry EPERM on non-Windows platforms', async () => {
+      setPlatform('linux');
+      const filePath = join(tempDir, 'no-retry.json');
+      mockRename.mockImplementationOnce(async () => {
+        throw transientError('EPERM');
+      });
+
+      await expect(atomicWriteJson(filePath, { a: 1 })).rejects.toThrow('EPERM');
+      expect(mockRename).toHaveBeenCalledTimes(1);
+    });
+
+    it('gives up after the maximum attempts and leaves no temp file', async () => {
+      setPlatform('win32');
+      const filePath = join(tempDir, 'gives-up.json');
+      // Queue more failures than the retry budget; only the budget is consumed.
+      for (let i = 0; i < 20; i++) {
+        mockRename.mockImplementationOnce(async () => {
+          throw transientError('EBUSY');
+        });
+      }
+
+      await expect(atomicWriteJson(filePath, { a: 1 })).rejects.toThrow('EBUSY');
+      expect(mockRename.mock.calls.length).toBeGreaterThan(1);
+
+      // Drop the unconsumed queued failures so later tests see the real rename.
+      mockRename.mockReset();
+      mockRename.mockImplementation(async (...args: Parameters<typeof import('fs/promises').rename>) => {
+        const actual = await vi.importActual<typeof import('fs/promises')>('fs/promises');
+        return actual.rename(...args);
+      });
+      const { readdir } = await import('fs/promises');
+      expect(await readdir(tempDir)).toEqual([]);
+    });
+  });
 });

@@ -1,6 +1,7 @@
-import { writeFile, rename, unlink, mkdir } from 'fs/promises';
+import { writeFile, unlink, mkdir } from 'fs/promises';
 import { dirname } from 'path';
 import { randomUUID } from 'crypto';
+import { renameWithRetry } from '../utils/fs-retry.js';
 
 /**
  * Options for {@link atomicWriteJson}.
@@ -32,7 +33,8 @@ export interface AtomicWriteJsonOptions {
  *    supplied) directly at file-creation time so the temp file is never
  *    briefly world-readable (POSIX only; a no-op on Windows — see
  *    {@link AtomicWriteJsonOptions.mode})
- * 2. Use fs.rename to atomically replace the target file (POSIX semantics)
+ * 2. Use fs.rename to atomically replace the target file (POSIX semantics;
+ *    transient EPERM/EACCES/EBUSY errors are retried on Windows)
  * 3. Clean up temp file on error
  *
  * The `{uuid}` suffix (from `crypto.randomUUID`) makes the temp path unique
@@ -77,8 +79,9 @@ export async function atomicWriteJson(
         : 'utf-8'
     );
 
-    // Atomically rename temp file to target (POSIX atomic)
-    await rename(tempPath, filePath);
+    // Atomically rename temp file to target (POSIX atomic; retried on
+    // transient Windows contention errors)
+    await renameWithRetry(tempPath, filePath);
   } catch (error) {
     // Clean up temp file if it exists
     try {

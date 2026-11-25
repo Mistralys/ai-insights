@@ -216,7 +216,7 @@ describe('ledger_import_standalone — successful import', () => {
 
     expect(isError).toBe(true);
     expect(text).toContain('Import failed:');
-    expect(text).toMatch(/ENOTSUP|operation not supported|EISDIR/);
+    expect(text).toMatch(/ENOTSUP|operation not supported|EISDIR|EPERM/);
   });
 
   it('accepts cwd_path as a fallback when project_path is not provided', async () => {

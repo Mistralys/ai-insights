@@ -853,6 +853,8 @@ export async function handleDeleteProject(
     forbidden('Only COMPLETE or ARCHIVED projects can be deleted.');
   }
 
+  // WINDOWS: recursive rm can hit EBUSY/EPERM while a handle is open inside the
+  // directory; consider rm's maxRetries/retryDelay options (see src/utils/fs-retry.ts).
   await rm(store.storageDir, { recursive: true, force: true });
 
   return { deleted: true, slug };

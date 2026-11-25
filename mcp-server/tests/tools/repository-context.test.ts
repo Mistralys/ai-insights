@@ -7,7 +7,7 @@
  */
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, mkdir, writeFile } from 'fs/promises';
-import { join } from 'path';
+import { join, dirname } from 'path';
 import { tmpdir } from 'os';
 
 // ─── Module-level variable updated by beforeEach ──────────────────────────
@@ -444,7 +444,7 @@ async function seedKnowledgeStore(
   filePath: string,
   insights: Array<Record<string, unknown>>
 ): Promise<void> {
-  const dir = filePath.substring(0, filePath.lastIndexOf('/'));
+  const dir = dirname(filePath);
   await mkdir(dir, { recursive: true });
   const store = {
     version: '2.0.0',

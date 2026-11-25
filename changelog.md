@@ -10,6 +10,8 @@ now generated and the server runs without it; after pulling, run the CLI setup o
 
 - MCP: Added six task tools with colours, tags, ticket references, sorting and per-store storage.
 - MCP: Server and GUI start and keep running when the name-mapping file is missing.
+- MCP: Improved atomic JSON writes with retry for transient Windows rename errors.
+- MCP: Added a shared `renameWithRetry` helper for Windows file system access.
 - GUI: Added a Tasks tab to browse, search, filter, sort, create, edit and delete tasks.
 - GUI: Added a Configuration → Tasks tab for ticket base URL, default queue and page size.
 - GUI: Task list warns when a store has errors; added a global keyboard focus ring.

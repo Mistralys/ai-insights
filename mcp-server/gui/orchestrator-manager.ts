@@ -38,11 +38,12 @@
  * @see {@link computeEffectiveStatus} — canonical implementation of the transition rules above.
  */
 
-import { readFile, readdir, writeFile, unlink, rename, stat } from 'node:fs/promises';
+import { readFile, readdir, writeFile, unlink, stat } from 'node:fs/promises';
 import { join, dirname, resolve, basename } from 'node:path';
 import { createHash } from 'node:crypto';
 import { spawn } from 'node:child_process';
 
+import { renameWithRetry } from '../src/utils/fs-retry.js';
 import { planFolderBasename } from '../src/utils/path-validator.js';
 import { computeEffectiveStatus } from '../src/gui/queue/compute-effective-status.js';
 import { readQueueFile, isProcessAlive, getProjectLedgerStatus } from '../src/gui/queue/get-queue.js';
@@ -89,7 +90,8 @@ async function writeQueueFileAtomic(logsDir: string, entries: RawQueueEntry[]): 
   const queuePath = join(logsDir, QUEUE_FILENAME);
   const tmpPath   = `${queuePath}.tmp`;
   await writeFile(tmpPath, JSON.stringify(entries), 'utf-8');
-  await rename(tmpPath, queuePath);
+  // Windows can reject a rename onto a file another process is reading.
+  await renameWithRetry(tmpPath, queuePath);
 }
 
 /**
