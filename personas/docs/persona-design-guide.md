@@ -13,8 +13,8 @@
 
 **Version:** 3.11
 **Last Updated:** 2026-10-28
-**License:** MIT 
-**Author:** Sebastian Mordziol
+**License:** CC BY-SA 4.0 - https://creativecommons.org/licenses/by-sa/4.0/
+**Author:** Sebastian Mordziol (Mistralys)
 **Source:** https://github.com/Mistralys/ai-insights/blob/main/personas/docs/persona-design-guide.md
 
 **Changelog**
