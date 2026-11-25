@@ -18,6 +18,13 @@
  *   areBrowsersInstalled(opts?)— a Playwright Chromium build is present on disk
  *   installBrowserTool(opts?)  — npm install + Chromium download
  *
+ * Shim guard API (used by scripts/ai-insights-browser.js):
+ *   SHARED_SESSION_NAME        — name of the machine-wide shared Playwright session
+ *   TEARDOWN_COMMANDS          — commands that end every session on the machine
+ *   parseBrowserArgs(argv)     — session, command and help/version flags of an argument list
+ *   browserOutputDir(session, tmpDir?) — per-session output directory outside the project
+ *   prepareBrowserInvocation(opts) — apply the shim's guards; returns forwarded args + env, or an error
+ *
  * Dependency direction: this file MUST NOT import from scripts/cli.js
  * (it is imported by scripts/lib/health-checks.js).
  */
@@ -140,4 +147,134 @@ export function installBrowserTool({ dir = BROWSER_TOOL_DIR, log } = {}) {
   }
   const browsers = run(process.execPath, [entry, 'install-browser', 'chromium'], false);
   return { success: browsers.ok, output: `${npm.output}\n${browsers.output}`.trim() };
+}
+
+// ---------------------------------------------------------------------------
+// Shim guards
+//
+// The shim stays close to a pass-through: it recognises only the session
+// option forms below, the first positional argument (the command), and the
+// --help / --version / --force flags. Everything else is forwarded untouched.
+// ---------------------------------------------------------------------------
+
+/** Name Playwright gives the session when none is named; shared machine-wide. */
+export const SHARED_SESSION_NAME = 'default';
+
+/** Commands that end every browser session on the machine. */
+export const TEARDOWN_COMMANDS = Object.freeze(['close-all', 'kill-all']);
+
+/** Commands that do not act on a single session, so need no session name. */
+const SESSIONLESS_COMMANDS = Object.freeze(['list', 'install', 'install-browser', ...TEARDOWN_COMMANDS]);
+
+/** Environment variable Playwright reads as the default session name. */
+const SESSION_ENV = 'PLAYWRIGHT_CLI_SESSION';
+
+/** Environment variable Playwright reads as the output directory. */
+const OUTPUT_DIR_ENV = 'PLAYWRIGHT_MCP_OUTPUT_DIR';
+
+/**
+ * Pick the session name, command and help/version flags out of an argument
+ * list. Recognised session forms: `-s=NAME`, `-s NAME`, `--session=NAME`,
+ * `--session NAME`. An empty name counts as no name. Parsing stops at `--`.
+ * @param {string[]} argv  Arguments after the command name
+ * @returns {{ session: string | null, command: string | null, help: boolean, version: boolean }}
+ */
+export function parseBrowserArgs(argv) {
+  let session = null;
+  let command = null;
+  let help    = false;
+  let version = false;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    if (arg === '--') break;
+
+    const eq = /^(?:-s|--session)=(.*)$/.exec(arg);
+    if (eq) {
+      session = eq[1] || null;
+      continue;
+    }
+    if (arg === '-s' || arg === '--session') {
+      const next = argv[i + 1];
+      if (next !== undefined && !next.startsWith('-')) {
+        session = next;
+        i++;
+      }
+      continue;
+    }
+    if (arg === '--help')    { help = true;    continue; }
+    if (arg === '--version') { version = true; continue; }
+    if (command === null && !arg.startsWith('-')) command = arg;
+  }
+
+  return { session, command, help, version };
+}
+
+/**
+ * Directory the shim points Playwright's output (snapshot files, unnamed
+ * screenshots) at: `{tmpDir}/ai-insights-browser/{session}`. Characters
+ * outside `[A-Za-z0-9._-]` in the session name are replaced with `_`, so a
+ * session name cannot escape the base directory.
+ * @param {string} session
+ * @param {string} [tmpDir]
+ * @returns {string}
+ */
+export function browserOutputDir(session, tmpDir = os.tmpdir()) {
+  let safe = String(session).replace(/[^A-Za-z0-9._-]/g, '_');
+  if (/^\.*$/.test(safe)) safe = '_';
+  return path.join(tmpDir, BROWSER_COMMAND, safe);
+}
+
+/**
+ * Apply the shim's three guards to an invocation:
+ *  1. A named session is required (option or PLAYWRIGHT_CLI_SESSION), except
+ *     for help/version, no command, and commands that span sessions.
+ *     Naming the shared session explicitly (`-s=default`) is the opt-in.
+ *  2. PLAYWRIGHT_MCP_OUTPUT_DIR defaults to browserOutputDir(session); a
+ *     value the caller set is kept.
+ *  3. close-all / kill-all need --force, which is stripped before forwarding.
+ * @param {{ argv: string[], env?: NodeJS.ProcessEnv, tmpDir?: string }} opts
+ * @returns {{ ok: true, args: string[], env: NodeJS.ProcessEnv, outputDir: string }
+ *         | { ok: false, message: string }}
+ */
+export function prepareBrowserInvocation({ argv, env = process.env, tmpDir = os.tmpdir() }) {
+  const parsed  = parseBrowserArgs(argv);
+  const session = parsed.session || env[SESSION_ENV] || null;
+  const exempt  = parsed.help || parsed.version || parsed.command === null
+    || SESSIONLESS_COMMANDS.includes(parsed.command);
+
+  let args = [...argv];
+
+  if (!parsed.help && TEARDOWN_COMMANDS.includes(parsed.command)) {
+    if (!args.includes('--force')) {
+      return { ok: false, message: teardownMessage(parsed.command) };
+    }
+    args = args.filter((a) => a !== '--force');
+  }
+
+  if (!session && !exempt) {
+    return { ok: false, message: sessionMessage() };
+  }
+
+  const outputDir = env[OUTPUT_DIR_ENV] || browserOutputDir(session || SHARED_SESSION_NAME, tmpDir);
+  return { ok: true, args, env: { ...env, [OUTPUT_DIR_ENV]: outputDir }, outputDir };
+}
+
+function sessionMessage() {
+  return [
+    `${BROWSER_COMMAND}: no session named. The unnamed "${SHARED_SESSION_NAME}" session is shared by every`,
+    'agent and terminal on this machine, so another caller can navigate your page away between two commands.',
+    `Fix: name a session on every call, e.g. ${BROWSER_COMMAND} -s=my-task open <url>`,
+    `     (or set ${SESSION_ENV}=my-task for the whole shell).`,
+    `To use the shared session on purpose, name it: ${BROWSER_COMMAND} -s=${SHARED_SESSION_NAME} <command>`,
+  ].join('\n');
+}
+
+function teardownMessage(command) {
+  return [
+    `${BROWSER_COMMAND}: "${command}" ends every browser session on this machine, including sessions`,
+    'other agents are using.',
+    `To end only your own session, run: ${BROWSER_COMMAND} -s=<name> close`,
+    `To end all sessions anyway, add --force: ${BROWSER_COMMAND} ${command} --force`,
+  ].join('\n');
 }
