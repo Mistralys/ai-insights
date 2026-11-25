@@ -57,6 +57,7 @@ Run the entire pipeline from the command line — no IDE required. Built on **La
 
 - **Node.js** >= 18
 - **Python 3.11+** (only for the orchestrator)
+- **Node.js** >= 20 for the browser tool (Playwright CLI, installed locally by the setup wizard and exposed as `ai-insights-browser`)
 
 ---
 

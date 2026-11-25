@@ -25,6 +25,12 @@ import { spawn } from 'child_process';
 import { isCliLinked } from './npm-link.js';
 import { latestMtime } from './mcp-dist-freshness.js';
 import { isNameMappingPresent } from './name-mapping.js';
+import {
+  BROWSER_TOOL_DIR,
+  isBrowserToolInstalled,
+  isBrowserShimOnPath,
+  areBrowsersInstalled,
+} from './browser-tool.js';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
@@ -260,6 +266,54 @@ export const HEALTH_CHECKS = [
       );
       return srcMtime <= eggMtime;
     },
+  },
+
+  /** @type {SyncCheck} */
+  {
+    id: 'browser-tool-installed',
+    label: 'Browser tool (Playwright CLI) installed',
+    cost: 'instant',
+    /** @returns {boolean} */
+    detect() {
+      return isBrowserToolInstalled();
+    },
+    fix: 'node scripts/cli.js setup --components browser',
+  },
+
+  /** @type {SyncCheck} */
+  {
+    id: 'browser-deps-fresh',
+    label: 'Browser tool dependencies up to date',
+    cost: 'instant',
+    /** @returns {boolean} */
+    detect() {
+      return lockfileFresh(BROWSER_TOOL_DIR);
+    },
+    fix: 'node scripts/cli.js setup --components browser',
+  },
+
+  /** @type {SyncCheck} */
+  {
+    id: 'browser-binaries-installed',
+    label: 'Browser tool Chromium downloaded',
+    cost: 'fast',
+    /** @returns {boolean} */
+    detect() {
+      return areBrowsersInstalled();
+    },
+    fix: 'node scripts/cli.js setup --components browser',
+  },
+
+  /** @type {SyncCheck} */
+  {
+    id: 'browser-shim-on-path',
+    label: 'Global ai-insights-browser command available',
+    cost: 'fast',
+    /** @returns {boolean} */
+    detect() {
+      return isBrowserShimOnPath();
+    },
+    fix: 'node scripts/cli.js link-cli',
   },
 
   // ── slow tier (100 ms – 2 s — subprocess spawns) ─────────────────────────

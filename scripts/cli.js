@@ -42,6 +42,13 @@ import { spawnSync } from 'child_process';
 import { getPublishLocations } from './publish-locations.js';
 import { install as mcpGlobalInstall, dryRun as mcpGlobalDryRun, shimConfigExists } from './install-mcp-global.js';
 import { isCliLinked, linkCli } from './lib/npm-link.js';
+import {
+  BROWSER_COMMAND,
+  isBrowserToolInstalled,
+  isBrowserShimOnPath,
+  areBrowsersInstalled,
+  installBrowserTool,
+} from './lib/browser-tool.js';
 import { HEALTH_CHECKS, runChecks } from './lib/health-checks.js';
 import { isNameMappingPresent } from './lib/name-mapping.js';
 import { isMcpDistStale } from './lib/mcp-dist-freshness.js';
@@ -327,6 +334,30 @@ const SETUP_COMPONENTS = [
     validate: () => shimConfigExists(),
   },
   {
+    id:    'browser',
+    label: 'Browser tool',
+    desc:  `Playwright CLI for agents — local install + Chromium + global \`${BROWSER_COMMAND}\` command`,
+    detect: () => isBrowserToolInstalled() && areBrowsersInstalled() && isBrowserShimOnPath(),
+    run() {
+      log('  Installing Playwright CLI and Chromium into tools/browser…', 'dim');
+      const install = installBrowserTool({ log: (msg) => log(msg, 'dim') });
+      if (!install.success) {
+        log('  ✗ Browser tool install failed', 'red');
+        return false;
+      }
+      // The global command is a bin entry of the root package; (re-)linking
+      // registers it, including for links created before it existed.
+      log(`  Registering the \`${BROWSER_COMMAND}\` command (npm link)…`, 'dim');
+      const { success } = linkCli({ cwd: WORKSPACE_ROOT, log: (msg) => log(msg, 'dim') });
+      if (!success) {
+        log('  ✗ npm link failed', 'red');
+        return false;
+      }
+      return true;
+    },
+    validate: () => isBrowserToolInstalled() && areBrowsersInstalled() && isBrowserShimOnPath(),
+  },
+  {
     id:    'global-cli',
     label: 'Global CLI',
     desc:  'npm link — makes `ai-insights` available from any directory (recommended)',
@@ -599,8 +630,10 @@ async function cmdInstallMcp(args) {
 }
 
 async function cmdLinkCli() {
-  if (isCliLinked({ cwd: WORKSPACE_ROOT })) {
-    log('  \u2713 Already linked \u2014 the `ai-insights` command is available globally.', 'green');
+  // A link made before the browser shim existed lacks that bin entry, so
+  // "linked" alone is not enough to skip the re-link.
+  if (isCliLinked({ cwd: WORKSPACE_ROOT }) && isBrowserShimOnPath()) {
+    log(`  \u2713 Already linked \u2014 the \`ai-insights\` and \`${BROWSER_COMMAND}\` commands are available globally.`, 'green');
   } else {
     const { success, output } = linkCli({ cwd: WORKSPACE_ROOT, log: (msg) => log(msg, 'dim') });
     if (success) {
@@ -923,7 +956,7 @@ const COMMANDS = [
     key:         'l',
     label:       'Link global CLI',
     category:    'Setup & Configuration',
-    description: 'npm link — make `ai-insights` available from any directory',
+    description: 'npm link — make `ai-insights` and `ai-insights-browser` available from any directory',
     run:         cmdLinkCli,
   },
   {

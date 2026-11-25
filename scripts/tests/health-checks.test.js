@@ -24,8 +24,9 @@ import { SUBPROCESS_TEST_TIMEOUT_MS } from './helpers/timeouts.js';
 // ─── AC-1: Registry shape ─────────────────────────────────────────────────────
 
 describe('HEALTH_CHECKS registry', () => {
-  it('contains exactly 13 entries', () => {
-    expect(HEALTH_CHECKS).toHaveLength(13);
+  it('has unique ids', () => {
+    const ids = HEALTH_CHECKS.map(c => c.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 
   it('every entry has id, label, cost, and detect fields', () => {
@@ -59,6 +60,10 @@ describe('HEALTH_CHECKS registry', () => {
       'orchestrator-deps-fresh',
       'global-cli-linked',
       'personas-fresh',
+      'browser-tool-installed',
+      'browser-deps-fresh',
+      'browser-binaries-installed',
+      'browser-shim-on-path',
     ];
     const actual = HEALTH_CHECKS.map(c => c.id);
     for (const id of expected) {

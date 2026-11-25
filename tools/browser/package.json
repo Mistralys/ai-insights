@@ -1,0 +1,9 @@
+{
+  "name": "ai-insights-browser-tool",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Workspace-local Playwright CLI install behind the global `ai-insights-browser` command",
+  "dependencies": {
+    "@playwright/cli": "^0.1.25"
+  }
+}
