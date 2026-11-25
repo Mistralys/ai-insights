@@ -12,7 +12,8 @@
     "@mistralys/cli-menu": "^1.1.0"
   },
   "bin": {
-    "ai-insights": "./scripts/cli.js"
+    "ai-insights": "./scripts/cli.js",
+    "ai-insights-browser": "./scripts/ai-insights-browser.js"
   },
   "devDependencies": {
     "vitest": "^4.0.18"
