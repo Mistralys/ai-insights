@@ -543,9 +543,9 @@ Keep the ledger synthesis record of a completed project in step with its synthes
 
 ---
 
-### Ledger Task Curator (v1.0.0)
+### Ledger Task Curator (v1.0.1)
 
-**Identity:** Task List Steward
+**Identity:** Task Operations Manager
 
 Steward the ledger task list: close tasks a completed plan has fully shipped, and find, update, complete, reprioritise, recolour or delete tasks on request.
 

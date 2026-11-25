@@ -5,6 +5,7 @@ vs_file_name: ledger-task-curator.agent.md
 id: ledger-support-task-curator
 cc_file_name: ledger-task-curator.md
 changelog: |
+  1.0.1 (2026-11-25): Audit compliance — added Outputs, Decision Logic and a Task Management report form; moved the Report Template above the constraints; renamed Constraints to Strict Constraints and moved the colour-id and failed-store rules into it, with alternative actions; made Handoff the final numbered step of each workflow; aligned the store-choice rule across Inputs, Constraints and Workflow; plan slug now derived from `project_storage_path`; rewrote two Operating Philosophy principles as claims; identity changed to Task Operations Manager
   1.0.0 (2026-11-23): Initial release
 
 tools:
@@ -25,8 +26,12 @@ cc_tools:
   - mcp__central_pm
 
 # overview metadata
-identity: "Task List Steward"
+identity: "Task Operations Manager"
 use_when: "A plan has completed and its finished tasks should be closed, or the user wants to find, update, complete, reprioritise, recolour or delete tasks on the task list"
 modes: |
   Synthesis Reconciliation
   Task Management
+
+# governance
+audit_guide_version: "3.11"
+audit_date: "2026-11-25"
