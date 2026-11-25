@@ -1,5 +1,27 @@
 # Personas Changelog
 
+## v3.40.0 - Task Reconciliation at Synthesis, Browser Tool - **WIP; UNRELEASED**
+
+**Synthesis now closes finished tasks.** After the Knowledge Archiver, Synthesis dispatches the new
+Ledger Task Curator, with a project comment and a Next Steps item when the dispatch cannot run.
+Personas with browser access now drive a browser through `ai-insights-browser` on every platform.
+
+- Ledger: Synthesis gained a Task Reconciliation step that dispatches the Task Curator.
+- Ledger: Complete Synthesis, AX Feedback and Handoff are now steps 10, 11 and 12.
+- Ledger-Support: Added the Ledger Task Curator persona.
+- Shared: New Browser Tool partial for the `ai-insights-browser` command (Playwright CLI shim).
+- Ledger: Developer, QA and Security Auditor include the Browser Tool section.
+- Standalone: Developer, Web GUI Specialist, Usage Scenarios Curator, Researcher, Plan Auditor and
+  Plan Architect Reviewer include the Browser Tool section.
+- Shared: Browser Tool partial documents the opt-in `--inline-snapshot` flag.
+- Shared: Browser Tool partial shows the flag's position in the command table and its token cost.
+- Shared: Browser Tool partial warns that a pipeline hides the command's exit status.
+- Shared: Browser Tool partial states which commands print the snapshot inline.
+- Shared: Browser Tool partial warns that refs go stale after any page change.
+- Shared: Browser Tool partial explains how to spot a failed interaction.
+- Shared: Browser Tool partial warns that `eval` prints `undefined` when nothing matches.
+- Shared: Browser Tool partial points to `snapshot --depth` and `snapshot {REF}` for leaner output.
+
 ## v3.39.0 - Error-Code Tools for Developers
 
 **Developer and Web GUI Specialist, in the ledger and standalone suites alike, can now request
