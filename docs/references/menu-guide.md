@@ -32,9 +32,9 @@ The **Doctor** command runs a fuller set of checks including dependency freshnes
 
 | Item | Command | Description |
 |------|---------|-------------|
-| **First-time setup** | `setup` | Full workspace setup wizard — installs MCP server, personas, orchestrator venv, global MCP registration, global CLI link, and git hooks |
+| **First-time setup** | `setup` | Full workspace setup wizard — installs MCP server, personas, orchestrator venv, global MCP registration, the browser tool (Playwright CLI and the `ai-insights-browser` command), global CLI link, and git hooks |
 | **Install MCP (Global)** | `install-mcp` | Register the MCP server in VS Code / Claude Code user config via a stable shim |
-| **Link global CLI** | `link-cli` | `npm link` — make the `ai-insights` command available from any directory |
+| **Link global CLI** | `link-cli` | `npm link` — make the `ai-insights` and `ai-insights-browser` commands available from any directory |
 | **Install git hooks** | `git-hooks` | Activate the pre-commit guards (persona freshness, version sync, ruff lint) |
 
 ### Personas
