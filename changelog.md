@@ -1,54 +1,29 @@
 # AI Insights Changelog
 
-## v2.17.0 - Task Tools and Foundation - **WIP; UNRELEASED**
-> mcp v2.14.0 · personas v3.40.0
+## v2.16.0 - Task Tools, Browser CLI and Name Mapping
+> mcp v2.13.0 · personas v3.40.0
 
 **Agents can now add, find, update and delete tasks through six new MCP tools.**
-Tasks are kept in per-store files with colours, tags, ticket references and sorting.
-The GUI gains a Tasks tab to browse and manage tasks, a Tasks configuration tab and several
-accessibility improvements. A new Ledger Task Curator persona closes tasks that a completed
-plan fully shipped and manages tasks on request.
+The GUI gains a Tasks tab, and a new Ledger Task Curator closes tasks a finished plan shipped.
+A new browser command lets agents drive a browser from the CLI. The persona name mapping is
+now generated and the server runs without it; after pulling, run the CLI setup once.
 
-- MCP: Added six task tools to add, get, list, search, update and delete tasks.
-- MCP: Task tools take an optional store id; an unknown id is an error listing the valid ones.
-- MCP: Task lists and searches default to open tasks and report any stores they skipped.
-- MCP: Tasks can be given a colour; lists can be filtered by colour or by no colour.
-- MCP: Added task foundation with storage and input schemas, colour palette, tags and sorting.
-- MCP: Added ticket references (number or QUEUE-number) with labels and links; http/https only.
-- MCP: Added per-store task file (`.tasks/tasks.json`) with locked writes; an unreadable file is reported and never overwritten.
-- Personas: Added Ledger Task Curator, closing tasks a completed plan fully shipped.
-- Personas: Ledger Task Curator lists partial matches and manages tasks; deletion needs confirmation.
-- GUI: Added a Tasks tab to browse, search, filter, sort, create, edit and delete tasks.
-- GUI: Task list offers pagination with page-size selector, keyboard navigation and tag autocomplete.
-- GUI: Task list shows a warning when a store has errors and refreshes when the browser tab is revisited.
-- GUI: Added a stronger form-control border, a global keyboard focus ring, a non-wrapping scrollable header nav on narrow screens, and a global reduced-motion guard (affects all views).
-- CLI: Added the browser tool: the Playwright CLI is installed in `tools/browser/` and exposed through the global `ai-insights-browser` command, independent of any global Playwright install.
-- CLI: Added a `browser` setup component and four `browser-*` health checks; `link-cli` now re-links when the `ai-insights-browser` command is missing.
-- CLI: `ai-insights-browser` now requires a named session (`-s=NAME` or `PLAYWRIGHT_CLI_SESSION`; `-s=default` opts into the shared one).
-- CLI: `ai-insights-browser` writes snapshots and screenshots to `{tmp}/ai-insights-browser/{session}` unless `PLAYWRIGHT_MCP_OUTPUT_DIR` is set.
-- CLI: `ai-insights-browser close-all` and `kill-all` now require `--force`.
-- CLI: `ai-insights-browser` now prints the files it reports as absolute paths, in text, `--raw` and `--json` output.
-- CLI: `ai-insights-browser attach NAME` counts as a named session; `attach` without a name still needs `-s`.
-- CLI: Added opt-in `ai-insights-browser --inline-snapshot` (or `AI_INSIGHTS_BROWSER_INLINE_SNAPSHOT=1`): prints an ok/failed status line first and the page snapshot instead of its file link.
-- CLI: `--inline-snapshot` works in any position, like `--json`; a `--` ends the options.
-- CLI: The global `ai-insights-browser --help` now ends with the shim's own notes and the path of its usage docs.
-- GUI: Added a Configuration → Tasks tab for the ticket base URL, default queue and default entries per page.
-
-## v2.16.0 - Untracked Name Mapping and CTX Removal
-> mcp v2.13.0
-
-**The persona name mapping is now a generated file, and the server runs fine without it.**
-The GUI offers a one-click persona build when output is missing, and the CLI can repair it.
-CTX generation has been removed entirely, including its command and tracked output. After
-pulling, run the CLI setup once to rebuild the mapping.
-
+- MCP: Added six task tools with colours, tags, ticket references, sorting and per-store storage.
 - MCP: Server and GUI start and keep running when the name-mapping file is missing.
+- GUI: Added a Tasks tab to browse, search, filter, sort, create, edit and delete tasks.
+- GUI: Added a Configuration → Tasks tab for ticket base URL, default queue and page size.
+- GUI: Task list warns when a store has errors; added a global keyboard focus ring.
 - GUI: A banner offers a one-click "Build personas" when persona build output is missing.
-- CLI: `doctor` and `setup` detect a missing name-mapping file and offer to regenerate it.
-- Build: The name-mapping file is no longer tracked in Git; it is generated per clone.
+- CLI: Added the `ai-insights-browser` command, a Playwright browser tool with named sessions.
+- CLI: Browser tool prints absolute file paths and offers an opt-in inline page snapshot.
+- CLI: Browser `close-all` and `kill-all` now require `--force`.
+- CLI: Setup and health checks cover the browser tool; `link-cli` restores a missing command.
+- CLI: `doctor` and `setup` detect and repair a missing name-mapping file.
 - CLI: Removed the `ctx-generate` command.
-- Build: Removed CTX generation; `build-maintain` no longer needs the `ctx` binary.
-- Build: Removed the tracked CTX output and configuration files.
+- Personas: Added Ledger Task Curator; Synthesis now reconciles tasks after archiving knowledge.
+- Personas: Browser-capable personas now drive a browser through the browser tool.
+- Build: The name-mapping file is no longer tracked in Git; it is generated per clone.
+- Build: Removed CTX generation and its tracked output and configuration.
 - Git: The pre-commit hook no longer warns about stale CTX output.
 - Docs: Manifests no longer mention CTX generation; a guard test keeps it from returning.
 

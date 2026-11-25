@@ -1,10 +1,10 @@
 # Project Ledger MCP Server - Changelog
 
-## v2.14.0 - Task Tools - **WIP; UNRELEASED**
+## v2.13.0 - Task Tools and Name Mapping Tolerance
 
 **Agents can now add, find, update and delete tasks through six new MCP tools.**
-Tasks are kept per store, with colours, tags, ticket references and sorting. The GUI gains
-a Tasks tab to browse and manage tasks, and a Tasks configuration tab.
+Tasks are kept per store, with colours, tags, ticket references and sorting. The server and
+GUI also keep running when the persona name mapping is missing.
 
 - Tasks: Added six tools to add, get, list, search, update and delete tasks.
 - Tasks: Tools take an optional store id; an unknown id is an error listing the valid ones.
@@ -12,17 +12,10 @@ a Tasks tab to browse and manage tasks, and a Tasks configuration tab.
 - Tasks: Tasks can be given a colour; lists can be filtered by colour or by no colour.
 - Tasks: Added ticket references (number or QUEUE-number) with labels and links; http/https only.
 - Tasks: Added storage and input schemas, colour palette, tags and sorting.
-- Storage: Each store keeps its own task file with locked writes; an unreadable file is reported, never overwritten.
+- Storage: Each store keeps its own task file; an unreadable file is reported, never overwritten.
+- Config: The name-mapping file is no longer tracked in Git and reloads live if missing.
 - GUI: Added a Tasks tab to browse, search, filter, sort, create, edit and delete tasks.
 - GUI: Added a Configuration > Tasks tab for the ticket base URL, default queue and page size.
-
-## v2.13.0 - Name Mapping Tolerance and Setup Repair
-
-**The server and GUI now start and keep running when the persona name mapping is missing.**
-The GUI offers a one-click persona build when build output is missing, and the CLI setup
-detects and repairs it. The mapping file is no longer tracked in Git and reloads live.
-
-- Config: The name-mapping file is no longer tracked in Git and reloads live if missing.
 - GUI: A banner offers a one-click "Build personas" when persona build output is missing.
 - CLI: `setup` detects and repairs missing persona build output.
 
