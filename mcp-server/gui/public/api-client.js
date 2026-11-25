@@ -963,6 +963,84 @@ var API = (function () {
       });
     },
 
+    // -- Tasks ---------------------------------------------------------
+
+    /**
+     * A task as returned by the task endpoints.
+     *
+     * @typedef {Object} TaskView
+     * @property {string}      id
+     * @property {string|null} [reference]        - Normalised ticket reference.
+     * @property {string}      text
+     * @property {string[]}    tags
+     * @property {number}      priority           - Higher sorts first.
+     * @property {boolean}     completed
+     * @property {string}      created_at
+     * @property {string|null} [completed_at]
+     * @property {string|null} [completion_source]
+     * @property {string}      color              - Palette id, or '' for none.
+     * @property {string}      store_id
+     * @property {string}      store_label
+     * @property {string}      ticket_label
+     * @property {string|null} ticket_url
+     */
+
+    /**
+     * Fetch every task plus the configured stores and task settings.
+     *
+     * @returns {Promise<{ tasks: TaskView[], stores: Array<{id: string, label: string, is_default: boolean}>, settings: {ticket_base_url: string, ticket_queue: string, page_size: number}, store_errors: Array<{store_id: string, store_label: string, message: string}> }>}
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    getTasks: function () {
+      return request('GET', '/tasks');
+    },
+
+    /**
+     * Create a task (`POST /api/tasks`).
+     *
+     * @param {{ text: string, store_id?: string, tags?: string[], reference?: string|null, color?: string }} body
+     * @returns {Promise<TaskView>} The created task.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    createTask: function (body) {
+      return request('POST', '/tasks', body);
+    },
+
+    /**
+     * Partially update a task (`PATCH /api/tasks/:id`).
+     *
+     * @param {string} id   - Task UUID (URI-encoded automatically).
+     * @param {object} body - Any of text, tags, reference, color ('' clears), priority, completed, completion_source.
+     * @returns {Promise<TaskView>} The updated task.
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    updateTask: function (id, body) {
+      return request('PATCH', '/tasks/' + encodeURIComponent(id), body);
+    },
+
+    /**
+     * Delete a task (`DELETE /api/tasks/:id`).
+     *
+     * @param {string} id - Task UUID (URI-encoded automatically).
+     * @returns {Promise<{ id: string, deleted: true }>}
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    deleteTask: function (id) {
+      return request('DELETE', '/tasks/' + encodeURIComponent(id));
+    },
+
+    /**
+     * Apply priority assignments (`POST /api/tasks/order`), 1-500 entries.
+     * A store failing mid-way is reported in `failed` (HTTP 200).
+     *
+     * @param {Array<{ id: string, priority: number }>} assignments
+     * @returns {Promise<{ updated: string[], failed: Array<{store_id: string, ids: string[], message: string}> }>}
+     * @throws {{ code: string, message: string }} On HTTP error responses.
+     */
+    reorderTasks: function (assignments) {
+      return request('POST', '/tasks/order', { assignments: assignments });
+    },
+
     // -- Model Registry ------------------------------------------------
 
     /**

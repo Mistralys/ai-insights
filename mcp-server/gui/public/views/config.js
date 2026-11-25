@@ -3,7 +3,7 @@
    Section 4d of the MCP Server Dashboard SPA
    Depends on: API, UI, escapeHtml, showLoading, showError
    Tab modules: config-model-registry.js, config-persona-models.js,
-     config-stores.js, config-error-codes.js (load first)
+     config-stores.js, config-error-codes.js, config-tasks.js (load first)
    Exports (global): configDirty — shared mutable object read/written by all
      four tab modules. Companion files must mutate its properties only; never
      reassign configDirty itself (object identity must be preserved so all
@@ -45,7 +45,8 @@ var configDirty = {
   personaModels: false,
   modelRegistry: false,
   stores: false,
-  errorCodes: false
+  errorCodes: false,
+  tasks: false
 };
 
 /* ── Tab registry ─────────────────────────────────────────── */
@@ -105,7 +106,8 @@ var CONFIG_TABS = [
     render: function () { ecRenderTab(); },
     leave: function () { ecResetState(); },
     reset: function () { ecResetState(); }
-  }
+  },
+  { key: 'tasks', label: 'Tasks', render: ctRenderTab, leave: ctResetState, reset: ctResetState }
 ];
 
 /** Find a CONFIG_TABS descriptor by key. Returns undefined when not found. */

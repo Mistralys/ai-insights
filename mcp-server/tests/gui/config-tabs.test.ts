@@ -45,6 +45,7 @@ beforeAll(() => {
   loadScript('views/config-persona-models.js');
   loadScript('views/config-stores.js');
   loadScript('views/config-error-codes.js');
+  loadScript('views/config-tasks.js');
   loadScript('views/config.js');
 });
 
@@ -136,7 +137,7 @@ function makePersona(overrides?: Record<string, unknown>) {
 
 beforeEach(() => {
   document.body.innerHTML = '<div id="app"></div>';
-  globalThis.configDirty = { general: false, personaModels: false, modelRegistry: false, stores: false, errorCodes: false };
+  globalThis.configDirty = { general: false, personaModels: false, modelRegistry: false, stores: false, errorCodes: false, tasks: false };
   globalThis.configActiveTab = 'general';
   globalThis.API = {
     getConfig: vi.fn().mockResolvedValue(makeConfig()),
@@ -202,7 +203,7 @@ describe('CONFIG_TABS — registry shape (AC-12)', () => {
     // config.js itself owns the General tab (no separate config-general.js file).
     expect(globalThis.CONFIG_TABS.length).toBe(configModuleFiles.length + 1);
     expect(globalThis.CONFIG_TABS.map((t) => t.key).sort()).toEqual(
-      ['general', 'stores', 'personaModels', 'modelRegistry', 'errorCodes'].sort()
+      ['general', 'stores', 'personaModels', 'modelRegistry', 'errorCodes', 'tasks'].sort()
     );
   });
 
@@ -219,6 +220,8 @@ describe('CONFIG_TABS — registry shape (AC-12)', () => {
       'ecProviders', 'ecPluginDir', 'ecLoadErrors', 'ecConfig', 'ecConfigWarning', 'ecTemporaryCodes', 'ecTemporaryWarning',
       'ecVisit', 'ecSelectedProviderId', 'ecTestInFlight', 'ecSaveInFlight',
       'ecClickHandler', 'ecChangeHandler', 'ecInputHandler', 'ecSubmitHandler',
+      // config-tasks.js
+      'ctVisit', 'ctConfig', 'ctSaveInFlight', 'ctSubmitHandler', 'ctInputHandler',
     ];
     stateVars.forEach((name) => {
       const re = new RegExp('\\b' + name + '\\b');

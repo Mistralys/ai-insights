@@ -66,6 +66,7 @@ Scripts are loaded synchronously via `<script>` tags in `index.html`, in depende
 
 1. `theme-init.js` — Early DOM attribute set (prevents flash of wrong theme)
 2. `libs/marked.min.js` — Vendored Markdown parser
+2a. `safe-markdown.js` — `SafeMarkdown` namespace (loaded directly after `marked`; depends only on `marked`)
 3. `api-client.js` — `API` namespace
 4. `theme.js` — `Theme` namespace
 5. `router.js` — `Router` namespace

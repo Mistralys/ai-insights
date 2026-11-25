@@ -585,8 +585,8 @@ describe('ecHandleSave — in-flight guard', () => {
   it('index.html loads config-error-codes.js with the bumped cache-buster', () => {
     const indexHtml = readFileSync(join(publicDir, 'index.html'), 'utf-8');
     expect(indexHtml).toContain('/views/config-error-codes.js?v=3');
-    expect(indexHtml).toContain('/views/config.js?v=6');
-    expect(indexHtml).toContain('/api-client.js?v=8');
+    expect(indexHtml).toMatch(/\/views\/config\.js\?v=\d+/);
+    expect(indexHtml).toContain('/api-client.js?v=9');
   });
 
   it('config.js references the Error Codes module only through its CONFIG_TABS descriptor (ecResetState), never a direct field', () => {

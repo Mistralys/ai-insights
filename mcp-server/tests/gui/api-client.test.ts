@@ -645,3 +645,56 @@ describe('API.rebuildPersonas', () => {
   });
 });
 
+
+// ---------------------------------------------------------------------------
+// Task methods
+// ---------------------------------------------------------------------------
+
+describe('API task methods', () => {
+  it('getTasks sends GET /api/tasks', async () => {
+    const calls = mockFetch({ tasks: [] });
+    await globalThis.API.getTasks();
+    expect(calls[0]!.url).toBe('/api/tasks');
+    expect(calls[0]!.opts.method).toBe('GET');
+  });
+
+  it('createTask sends POST /api/tasks with the JSON body', async () => {
+    const calls = mockFetch({ id: 'x' });
+    await globalThis.API.createTask({ text: 'Hello', color: 'red' });
+    expect(calls[0]!.url).toBe('/api/tasks');
+    expect(calls[0]!.opts.method).toBe('POST');
+    expect(JSON.parse(calls[0]!.opts.body as string)).toEqual({ text: 'Hello', color: 'red' });
+  });
+
+  it('updateTask sends PATCH /api/tasks/:id with the id URI-encoded', async () => {
+    const calls = mockFetch({ id: 'x' });
+    await globalThis.API.updateTask('a/b', { color: '' });
+    expect(calls[0]!.url).toBe('/api/tasks/a%2Fb');
+    expect(calls[0]!.opts.method).toBe('PATCH');
+    expect(JSON.parse(calls[0]!.opts.body as string)).toEqual({ color: '' });
+  });
+
+  it('deleteTask sends DELETE /api/tasks/:id', async () => {
+    const calls = mockFetch({ id: 'x', deleted: true });
+    await globalThis.API.deleteTask('abc');
+    expect(calls[0]!.url).toBe('/api/tasks/abc');
+    expect(calls[0]!.opts.method).toBe('DELETE');
+    expect(calls[0]!.opts.body).toBeUndefined();
+  });
+
+  it('reorderTasks sends POST /api/tasks/order wrapping the assignments', async () => {
+    const calls = mockFetch({ updated: [], failed: [] });
+    await globalThis.API.reorderTasks([{ id: 'a', priority: 2 }]);
+    expect(calls[0]!.url).toBe('/api/tasks/order');
+    expect(calls[0]!.opts.method).toBe('POST');
+    expect(JSON.parse(calls[0]!.opts.body as string)).toEqual({ assignments: [{ id: 'a', priority: 2 }] });
+  });
+
+  it('rejects with { code, message } on error', async () => {
+    mockFetch({ error: { code: 'VALIDATION_ERROR', message: 'Invalid task id.' } }, 400);
+    await expect(globalThis.API.updateTask('x', {})).rejects.toEqual({
+      code: 'VALIDATION_ERROR',
+      message: 'Invalid task id.',
+    });
+  });
+});

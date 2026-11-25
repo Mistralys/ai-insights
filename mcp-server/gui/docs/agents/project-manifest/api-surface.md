@@ -362,6 +362,22 @@ All handlers live in `gui/api-error-codes.ts`. Every route carries the `requireL
 | `POST` | `/api/error-codes/test` | `handleTestErrorCodeProvider` | Connection-tests a provider's settings without allocating a code. |
 | `GET` | `/api/error-codes/temporary` | `handleListTemporaryErrorCodesGui` | Logged temporary codes, newest-first, capped by `?limit` (default 200). Response `{ entries, warning? }`; `warning` is passed through unchanged when the log is corrupt (the entries are then the recoverable ones). |
 
+### 1.10 Tasks
+
+All handlers live in `gui/api-tasks.ts` and are a thin layer over `src/storage/task-collection.ts` (the layer the `ledger_*_task` MCP tools use). Routes are built by `buildTaskRoutes()` in `gui/server.ts`, composed ahead of `buildProjectRoutes()`. Every mutation carries `requireLoopbackRequest`; body-carrying routes also carry `requireJsonContentType`. `GET` is unguarded, like the other read routes.
+
+| Method | Path | Handler | Guards | Description |
+|--------|------|---------|--------|-------------|
+| `GET` | `/api/tasks` | `handleListTasks` | none | Every task (open and completed, sorted by priority) across all readable stores. Response `{ tasks: TaskView[], stores: [{ id, label, is_default }], settings: TaskSettings, store_errors }`. Filtering and paging are client-side. |
+| `POST` | `/api/tasks` | `handleCreateTask` | loopback, JSON | Creates a task; HTTP 201 with the `TaskView`. Body (strict): `{ text, store_id?, tags?, reference?, color? }`. |
+| `POST` | `/api/tasks/order` | `handleReorderTasks` | loopback, JSON | Applies priority assignments, possibly across stores. Body (strict): `{ assignments: [{ id: uuid, priority: int }] }`, 1 to 500 entries. Response `{ updated, failed[] }`. Declared before the `:id` routes so it is not shadowed. |
+| `PATCH` | `/api/tasks/:id` | `handleUpdateTask` | loopback, JSON | Partial update; returns the updated `TaskView`. Body (strict): `{ text?, tags?, reference?, color?, priority?, completed?, completion_source? }`. `color: ''` clears; `color: null` is rejected. |
+| `DELETE` | `/api/tasks/:id` | `handleDeleteTask` | loopback | Deletes a task; returns `{ id, deleted: true }`. |
+
+**Validation and errors:** `parseTaskId` is the first statement of the `:id` handlers and rejects a non-UUID with 400 `VALIDATION_ERROR` `Invalid task id.`. Bodies are validated by `TaskCreateBodySchema`, `TaskUpdateBodySchema` and `TaskReorderBodySchema` (all `.strict()`; unknown keys give 400). `color` is a plain string at the schema; the collection rejects an unknown palette id with a message naming the valid ids (400). A well-formed unknown task id or an unknown store gives 404 (the store message lists valid ids). An unreadable store file gives 409 `CONFLICT`.
+
+**Path-free errors:** `TaskFileInvalidError` embeds an absolute path, so no task route puts a path in a message. A 409, `store_errors[]` entries and `failed[]` entries carry the fixed text `Task file is unreadable and was left untouched.` (or `Store could not be updated.` for other reorder failures). In `handleReorderTasks`, an unknown id aborts the whole request with 404; a store failing mid-way is reported in `failed[]` with HTTP 200 while other stores are still applied.
+
 #### `ProviderListItem` — `GET /api/error-codes/providers` Response Shape
 
 ```typescript
@@ -583,6 +599,11 @@ Client-side REST API wrapper. All methods return Promises. All methods can rejec
 | `orchestratorKill` | `(id) → Promise<object>` | `POST /api/orchestrator/kill/:id` |
 | `orchestratorDismiss` | `(id) → Promise<null>` | `POST /api/orchestrator/dismiss/:id` |
 | `orchestratorDelete` | `(id) → Promise<object>` | `POST /api/orchestrator/delete/:id` |
+| `getTasks` | `() → Promise<{ tasks: TaskView[], stores: object[], settings: object, store_errors: object[] }>` | `GET /api/tasks` |
+| `createTask` | `(body) → Promise<TaskView>` | `POST /api/tasks` |
+| `updateTask` | `(id, body) → Promise<TaskView>` | `PATCH /api/tasks/:id` |
+| `deleteTask` | `(id) → Promise<{ id, deleted }>` | `DELETE /api/tasks/:id` |
+| `reorderTasks` | `(assignments: { id, priority }[]) → Promise<{ updated, failed[] }>` | `POST /api/tasks/order` (wraps the array as `{ assignments }`) |
 | `getKnowledge` | `(params?) → Promise<object>` | `GET /api/knowledge` |
 | `updateKnowledge` | `(id, scope, repositoryName, data) → Promise<object>` | `PATCH /api/knowledge/:id` |
 | `deleteKnowledge` | `(id, scope, repositoryName?) → Promise<null>` | `DELETE /api/knowledge/:id` |
@@ -687,7 +708,7 @@ The Configuration view's Error Codes tab (`config-error-codes.js`) has no hash r
 
 #### `config.js` — Internal Functions
 
-`renderConfig` is the router entry point; it delegates to a set of named internal functions. The Configuration view has five tabs — General, Stores (implemented in `config-stores.js`), Persona Models (implemented in `config-persona-models.js`), Model Registry (implemented in `config-model-registry.js`), and Error Codes (implemented in `config-error-codes.js`). `CONFIG_TABS` — an array of `{ key, label, render, leave, reset }` descriptors declared in `config.js` — is the single source of truth for which tabs exist, which button labels appear, and how tab content is dispatched and cleaned up; `config.js` never reads or writes another module's `cs*`/`mr*`/`pm*`/`ec*` fields directly, only through a descriptor's three functions. `configFindTab(key)` looks up a descriptor by key, returning `undefined` when not found. See GUI constraint §25 "Config Tab Modules" for the full contract each descriptor's `render`/`leave`/`reset` must satisfy, and the "Two leave semantics" distinction (always-reset vs. reset-only-on-discard) it documents.
+`renderConfig` is the router entry point; it delegates to a set of named internal functions. The Configuration view has General plus tab modules for Stores (`config-stores.js`), Persona Models (`config-persona-models.js`), Model Registry (`config-model-registry.js`), Error Codes (`config-error-codes.js`) and Tasks (`config-tasks.js`). `CONFIG_TABS` — an array of `{ key, label, render, leave, reset }` descriptors declared in `config.js` — is the single source of truth for which tabs exist, which button labels appear, and how tab content is dispatched and cleaned up; `config.js` never reads or writes another module's `cs*`/`mr*`/`pm*`/`ec*` fields directly, only through a descriptor's three functions. `configFindTab(key)` looks up a descriptor by key, returning `undefined` when not found. See GUI constraint §25 "Config Tab Modules" for the full contract each descriptor's `render`/`leave`/`reset` must satisfy, and the "Two leave semantics" distinction (always-reset vs. reset-only-on-discard) it documents.
 
 **Scaffold functions:**
 
@@ -721,6 +742,18 @@ The Configuration view's Error Codes tab (`config-error-codes.js`) has no hash r
 | `pmModelName(uuid)` | Resolves a model UUID to its display name from `pmModels`. |
 | `pmDirtyDot(isDirty)` | Returns the HTML for a dirty-indicator dot, or `''`. |
 | `pmBuildModelOptions(selectedUuid, includeDefault)` | Builds `<option>` elements for a model dropdown; optionally prepends a "Default" option. |
+
+**Tasks tab** (defined in `config-tasks.js` — loaded before `config.js`; registered in `CONFIG_TABS` as `{ key: 'tasks', label: 'Tasks', render: ctRenderTab, leave: ctResetState, reset: ctResetState }`). It reads the config object `config.js` already loaded (no lazy fetch), so leave and reset are the same always-reset function. It edits three settings and saves them through `API.updateConfig({ tasks_ticket_base_url, tasks_ticket_queue, tasks_page_size })`:
+
+| Function / variable | Signature | Description |
+|---------------------|-----------|-------------|
+| `ctRenderTab` | `(config) → void` | Renders the form (ticket base URL as `type="url"`, default queue name, default entries per page as a number input) into `#config-tab-content` and attaches the input and submit listeners. |
+| `ctResetState` | `() → void` | Increments `ctVisit`, removes the form listeners and drops `ctConfig`. Does not clear `ctSaveInFlight`. |
+| `ctValidate` | `(baseUrl, queue, pageSizeRaw) → { error } \| { value }` | Client-side checks mirroring the server schema in `src/gui/config.ts`: empty or absolute http(s) base URL, queue pattern and length limit, whole-number page size within the bounds. The server stays authoritative. |
+| `ctVisit` | `number` | Monotonic visit token. A save callback captured under an older visit writes no banner and does not touch `configDirty`. |
+| `ctSaveInFlight` | `boolean` | True while the PUT is pending; spans visits and is cleared by the save callback itself, even when stale. |
+
+On a successful save the config object passed to render is updated in place, so re-entering the tab shows the saved values.
 
 **Model Registry tab** (defined in `config-model-registry.js` — loaded before `config.js`; registered in `CONFIG_TABS` as `{ render: renderModelRegistryTab, leave: mrLeaveTab, reset: mrResetState }`):
 
@@ -809,7 +842,7 @@ The Configuration view's Error Codes tab (`config-error-codes.js`) has no hash r
 
 **`configDirty` cross-module contract:**
 
-`configDirty` is a shared mutable object with five boolean keys — `general`, `personaModels`, `modelRegistry`, `stores`, and `errorCodes`. It is declared and owned by `config.js` but mutated directly by all five tab modules:
+`configDirty` is a shared mutable object with one boolean key per tab — `general`, `personaModels`, `modelRegistry`, `stores`, `errorCodes` and `tasks`. It is declared and owned by `config.js` but mutated directly by the tab modules:
 
 | Module | Key written | When written |
 |--------|-------------|--------------|
@@ -817,12 +850,13 @@ The Configuration view's Error Codes tab (`config-error-codes.js`) has no hash r
 | `config-model-registry.js` | `.modelRegistry` | After any state mutation via `mrHasChanges()` |
 | `config-persona-models.js` | `.personaModels` | After any state mutation via `pmHasChanges()`; successful save → `false` |
 | `config-stores.js` | `.stores` | Never set to `true` — Stores tab uses immediate writes; always `false`. |
+| `config-tasks.js` | `.tasks` | `change`/`input` on the form → `true`; successful save (current visit) → `false` |
 | `config-error-codes.js` | `.errorCodes` | `change`/`input` on any form field → `true` (except the provider `<select>` itself and a Clear-stored-value toggle, which route through `ecHandleProviderChange`/the clear-checkbox branch first); successful save → `false`. |
 
 **Rules companion modules must follow:**
 1. **Never reassign `configDirty`** — the companion files hold a reference to the original object. Replacing it with `configDirty = {}` would break the coordinator's reference silently.
 2. **Only mutate named keys** — do not add or delete keys; `renderConfigPage()` always resets all five known keys on fresh load.
-3. **Load order** — `config-model-registry.js`, `config-persona-models.js`, `config-stores.js`, and `config-error-codes.js` must load _before_ `config.js` (see `index.html`). All four files reference `configDirty` only inside function bodies (not at module evaluation time), so the forward-reference is safe even though `configDirty` is not yet declared when these files are evaluated.
+3. **Load order** — `config-model-registry.js`, `config-persona-models.js`, `config-stores.js`, `config-error-codes.js` and `config-tasks.js` must load _before_ `config.js` (see `index.html`). All four files reference `configDirty` only inside function bodies (not at module evaluation time), so the forward-reference is safe even though `configDirty` is not yet declared when these files are evaluated.
 
 **Integration points a future tab module must follow** (established by `config-stores.js`, confirmed again by `config-error-codes.js`, `config-model-registry.js` and `config-persona-models.js`):
 - Add a boolean key to the `configDirty` literal in `config.js` (mutate only, per Rule 1 above).
@@ -837,6 +871,68 @@ The tab-bar unsaved-changes guard in `config.js` reads `configDirty[configActive
 **Dependencies:** `API`, `UI`, `escapeHtml`, `showLoading`, `showError` (all globals, loaded before `config.js`).
 
 ---
+
+### 2.7b `TasksModel` (views/tasks-model.js)
+
+Pure ES5 namespace for the Tasks view: filtering, sorting, paging, reorder maths and palette navigation. No DOM, no globals. Server parity is described in constraints §28. A task is a `TaskView`; view state is `{ filter: { status, store, tags, colors, q }, sort, leaving }`.
+
+| Member | Signature | Description |
+|--------|-----------|-------------|
+| `PALETTE` | `[{ id, name }]` | The ordered 16-entry palette (ids equal the server `TASK_COLOR_IDS`); no hex values. |
+| `colorById` | `(id) → entry \| null` | `null` for `''` and unknown ids. |
+| `colorKey` | `(task) → id \| 'none'` | Stored id when in the palette, else `'none'`. |
+| `toggleColor` | `(selection, key) → string[]` | Adds or removes one key; does not mutate its input. |
+| `normaliseTag` | `(raw) → string \| null` | Same rule as the server `normaliseTag`. |
+| `allTags` | `(tasks) → string[]` | Sorted unique tags. |
+| `firstLine` / `restLines` | `(text) → string` | Text up to the first line break / the trimmed remainder (`''` when none). |
+| `refColumnWidth` | `(tasks \| strings) → number` | Longest `ticket_label`, clamped to 6 to 16 ch. |
+| `comparator` | `(sort) → (a, b) → number` | `'priority'` (default), `'created'` or `'completed'`; mirrors `compareTasks`. |
+| `visibleTasks` | `(tasks, state) → TaskView[]` | Status, store, tags (AND), colours (OR over `colorKey`; empty = any), multi-term AND search over text, `ticket_label` and tags, then the comparator. Tasks flagged in `state.leaving` skip the status filter. |
+| `pageOf` | `(list, page, pageSize) → { items, page, pages, start, total }` | Requested slice; an out-of-range page is clamped. |
+| `placementOf` | `(list, id, pageSize) → { page } \| { hidden: true }` | Where a task shows. |
+| `swapWithNeighbour` | `(list, id, dir) → { assignments, targetIndex } \| null` | Priority swap with the neighbour (`dir` -1 or +1); `assignments` is `[{ id, priority }]`; `null` at an edge or for an unknown id. |
+| `reassignSubset` | `(orderedIds, tasksById) → [{ id, priority }]` | Hands the subset's existing priorities (highest first) to a new order; the multiset is preserved. |
+| `paletteMove` | `(index, key, itemCount) → number` | Next focus index in the 8-column swatch grid plus footer buttons. |
+| `palettePosition` | `(anchorRect, paletteSize, viewport) → { left, top, flipped }` | Below the anchor, flipped above near `viewport.height - 8` when there is room, clamped at the right edge. |
+
+---
+
+### 2.7c `TasksRender` (views/tasks-render.js)
+
+Pure string builders for the Tasks view. No DOM access and no state: the controller passes everything in and wires events. Depends on `escapeHtml` and `formatDate` (utils.js), `SafeMarkdown` and `TasksModel`. Every user-supplied value goes through `escapeHtml` or `SafeMarkdown`; colours are applied through `tc-{id}` classes only (no inline `style`, no hex). Shapes: `task` is a `TaskView`; `ui` is `{ sort, expanded, editing: { id, field } | null, armed, palette, activeId, leaving, flash }`; `state` is `{ filter: { status, store, tags, colors, q }, sort, paletteMode }`; `stores` is `[{ id, label }]`.
+
+| Member | Signature | Description |
+|--------|-----------|-------------|
+| `filterBar` | `(state, stores, tags) → string` | Search, status, store (hidden below two stores), sort, tag input with `datalist`, and the colour filter button (`Any` or one dot per colour, `aria-label` "Colour filter: {names}"). |
+| `activeFilters` | `(state) → string` | Tag chips under "All of:", colour chips under "Colour, any of:", each with a remove button, plus "Clear filters". Empty string when nothing differs from the defaults. |
+| `toolbar` | `(position, { stores, menuOpen, allExpanded }) → string` | Create button, `role="status"` live region, Expand/Collapse all and Shortcuts `?`. |
+| `createButton` | `(position, stores, menuOpen) → string` | Extra export. The "+ New task" button; appends `storeMenu` when `menuOpen` and more than one store accepts tasks. |
+| `helpPanel` | `() → string` | Full key map, including `c` (choose colour). |
+| `colorCell` | `(task, open) → string` | Colour button. `tc-{id}` dot with `aria-label` "Colour: {Name}. Change colour", or `is-empty` with "Set colour" for no or unknown colour. |
+| `palette` | `(mode, selection) → string` | `'set'`: selection is a colour id (`''` = none); 16 swatches with `aria-pressed` plus "No colour". `'filter'`: selection is a key array; adds the "No colour" toggle and an "Any" button disabled when the selection is empty. |
+| `row` | `(task, ui) → string` | One `<li>`; anatomy in ui-components.md section 19. |
+| `refCell` | `(task, editing) → string` | Edit input; link plus pencil when `ticket_url` is set; `ref-plain` button for a label without URL; `ref-empty` "+ ref" button when empty. |
+| `draft` | `(position, { store, storeLabel, ref, text, invalid }) → string` | New-task draft; group labelled with the target store. |
+| `storeMenu` | `(stores, position) → string` | `role="menu"` chooser of `role="menuitem"` buttons. |
+| `pagination` | `(p, { pageSize, pageSizes, stores, menuOpen }) → string` | `p` is a `TasksModel.pageOf` result. Reuses `pagination-row` / `pagination-btn`; the bottom create button sits in the same row. `pageSizes` defaults to 20, 50, 100. |
+| `emptyState` | `(hasFilters) → string` | Different message (with a clear-filters button) for filtered versus unfiltered empty lists. |
+
+**Behaviour notes:** In `row`, the drag handle is omitted from the markup (not hidden with CSS) when `ui.sort` is a date sort. `toolbar` and `pagination` take an options object, not positional arguments; controllers must follow these signatures.
+
+### 2.7d `renderTasks` (views/tasks.js)
+
+Router entry point for `#/tasks`: `renderTasks(app)`. Loads all tasks once with `API.getTasks()` and filters, sorts and pages them client-side through `TasksModel`; markup comes from `TasksRender`. Script load order in `index.html`: `tasks-model.js`, `tasks-render.js`, `tasks.js` (each `?v=1`), before `app.js`. Module-level state: `tasksPersist` (`filter`, `sort`, `page`, `pageSize`, replaced in place; page size seeded from `settings.page_size`) and the listener handles `tasksKeydownHandler`, `tasksClickHandler`, `tasksVisibilityHandler`, `tasksResizeHandler`, removed by `tasksRemoveGlobalHandlers()` before each render and self-removing once `#tasks-root` is gone (GUI constraint section 2). See data-flows.md section 18.
+
+### 2.7a `SafeMarkdown` (safe-markdown.js)
+
+Safe Markdown rendering for user-authored text (see constraints §26). Self-contained IIFE namespace; depends only on `libs/marked.min.js` (optional) and must be loaded directly after it.
+
+| Method | Signature | Returns | Description |
+|--------|-----------|---------|-------------|
+| `render` | `(text: string) → string` | HTML | Block-level Markdown rendered to safe HTML. `null`/`undefined` render as an empty string. |
+| `renderInline` | `(text: string) → string` | HTML | Inline Markdown rendered to safe HTML. |
+
+**Behaviour:** Raw HTML is escaped. Links become anchors (`target="_blank" rel="noopener noreferrer"`) only for `http:`, `https:` and `mailto:`; scheme-less or relative hrefs and all other schemes render as plain label text. Images never produce `<img>` and render as a link under the same rule. Without `marked`, output is escaped text with `<br>`. Insert the result via `innerHTML` only, with no second decoding step.
 
 ### 2.8 `UI` (components.js)
 

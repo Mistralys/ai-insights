@@ -20,6 +20,7 @@
 | `--color-bg` | `#f8fafc` | Page background |
 | `--color-surface` | `#ffffff` | Card/panel background |
 | `--color-border` | `#e2e8f0` | Borders, dividers |
+| `--color-border-strong` | `#7d8ba1` (dark: `#64748b`) | Stronger border for form controls (`input`, `select`, `textarea`, `.form-control`) and secondary buttons; declared in `:root` and `[data-theme="dark"]` |
 | `--color-text` | `#1e293b` | Primary text |
 | `--color-text-muted` | `#64748b` | Secondary/meta text |
 | `--color-header-bg` | `#1e293b` | Header background |
@@ -94,6 +95,28 @@ variants require a distinct `-fg` value.
 no `[data-theme="dark"]` override is needed for the run-stage `-fg` tokens — they cascade automatically.
 
 **Badge-specific tokens** — see Section 4 for the full naming convention and instructions for adding new variants.
+
+### Task Colour Tokens
+
+Task colours are CSS-only. Each colour id has a `--task-color-{id}` custom property in both `:root` and `[data-theme="dark"]` (the dark block repeats the light values) and a matching `.tc-{id}` class that sets `--dot: var(--task-color-{id})`. A dot element takes its fill from `--dot`.
+
+| Ids (in palette order) | Values (`:root` and dark) |
+|------------------------|---------------------------|
+| `red`, `orange`, `amber`, `yellow` | `#ef4444`, `#f97316`, `#f59e0b`, `#facc15` |
+| `lime`, `green`, `teal`, `cyan` | `#84cc16`, `#16a34a`, `#14b8a6`, `#22d3ee` |
+| `blue`, `indigo`, `violet`, `fuchsia` | `#3b82f6`, `#4f46e5`, `#8b5cf6`, `#d946ef` |
+| `pink`, `brown`, `slate`, `gray` | `#f472b6`, `#92400e`, `#475569`, `#a1a1aa` |
+
+**Rule:** render task colours only through these tokens and `.tc-{id}` classes; never put a hex value in JavaScript or an inline style (see `constraints.md`, "Task Colours Render Only Through Tokens and `.tc-{id}` Classes"). The `.dot` base rule is not part of this set.
+
+### Global Style Rules
+
+These rules in `styles.css` apply to every view, not to a single component:
+
+- **Focus ring:** a global `:focus-visible` rule draws `outline: 2px solid var(--color-link); outline-offset: 2px` on keyboard focus. `input`, `select` and `textarea` use a variant with `outline-offset: 0`. New components should not remove it or define their own focus outline.
+- **Form borders:** text-like inputs (checkbox and radio excluded), `select`, `textarea`, `.form-control` and `.btn-secondary` use `--color-border-strong`. Component rules that still set `--color-border` on their own inputs (e.g. `.filter-bar input`, `.orch-plan-input`) are unaffected.
+- **Header nav on narrow screens:** inside the `max-width: 900px` breakpoint, `header nav` does not wrap and scrolls horizontally; nav links do not shrink (`flex: 0 0 auto`, `white-space: nowrap`).
+- **Reduced motion:** a global `prefers-reduced-motion: reduce` guard shortens all animations and transitions and disables smooth scrolling for every view, not only the Tasks view.
 
 ---
 
@@ -722,3 +745,40 @@ fb.bind(function(state) {        // then wire events
   console.log(state['f-status'], state['f-search']);
 });
 ```
+
+---
+
+## 19. Tasks View Markup (`views/tasks-render.js`)
+
+Markup is produced by `TasksRender` (see api-surface.md, `TasksRender`).
+
+**Row anatomy `[~xQOT.+-]`:** `<li class="task">` holding, in order: handle (`.task-handle`, omitted for date sorts), completion checkbox (`.task-check`), reference cell (`.task-ref`), colour cell (`.task-color`), text (`.task-text`), expand toggle (`.task-toggle`, `.has-more` dot only for tasks with notes), delete button (`.task-delete`). State classes: `is-completed`, `is-leaving`, `is-active`, `is-flash`.
+
+**Collapsible area (`.task-details`):** notes via `SafeMarkdown.render`, then `.task-meta` (store badge, created and completed dates, `.task-source` for `completion_source`, `.task-id` showing the first 8 characters with the full id in `title`), then `.task-tags` (tag chips and the autocomplete input).
+
+**Reference cell modes:** link plus pencil (`ticket_url` set); `.ref-plain` button (label without URL); `.ref-empty` "+ ref" button (no reference); `.ref-input` while editing.
+
+**Colour dot and palette:** `.task-color > .dot.tc-{id}` (`.is-empty` when unset). Palette: `.palette-grid` of `.swatch.tc-{id}` buttons (`data-color`, `aria-pressed`), `.palette-foot` with `.palette-none` and, in filter mode, `.palette-actions` with the "Any" button. The filter button `.color-filter-btn` holds `.chip-dot.tc-{id}` dots or `.any`.
+
+**Palette popover (`#palette`, `views/tasks.js`):** a single non-modal element appended inside `#tasks-root` and absolutely positioned, so it scrolls with the page and is removed with the view. Two modes share it:
+
+| Mode | Opened by | Behaviour |
+|---|---|---|
+| `set` | click on a row's colour dot, or `c` on the active row (a second click on the same dot closes it) | Picking a swatch or "No colour" sets the task colour, closes the palette and returns focus to the dot. |
+| `filter` | the Colour filter button (`#f-color`) | Swatches toggle (OR across colours plus "No colour"); the palette stays open with focus on the toggled swatch; "Any" clears the selection. |
+
+Selected filter colours show as `.chip-dot` dots on the button and as removable chips; removing a chip returns focus to the Colour button, and "Clear filters" resets the colours.
+
+**Keyboard map (inside the palette):** arrow keys move through the 8-column swatch grid and down into the footer (`TasksModel.paletteMove`); Home and End jump to the first and last control; `Esc` and `Tab` close it and return focus to the dot or Colour button; `c` is swallowed. Every handled key stops propagation so the row and global shortcuts never see it.
+
+**Placement and flip rule:** `TasksModel.palettePosition` places the palette below its anchor (6 px gap, 8 px viewport margin) and flips it above the anchor when it would overflow the viewport bottom and there is room above. The flip is exposed as `.is-flipped`. `positionPalette()` re-places it after every render and on window resize.
+
+**Empty dots:** a task without a colour shows an empty ring (`.dot.is-empty`) only on row hover or focus, or while its palette is open. Every dot and swatch carries an accessible colour name.
+
+**Store menu and pagination:** `.store-menu` (`role="menu"`) with `data-store` items; pagination reuses `.pagination-row` / `.pagination-btn`.
+
+**Delete arm:** the first delete press swaps the icon for `.btn-danger.task-delete.is-armed` "Confirm"; a second press deletes.
+
+**Controller (`views/tasks.js`):** `renderTasks(app)` renders into a `#tasks-root.tasks-view` element. Only the active row and its controls are tabbable (roving tabindex; the active row carries `is-active`). The reference column width comes from the `--task-ref-width` custom property, set from `TasksModel.refColumnWidth` (6-16 ch; overlong references are ellipsised with a `title`). `store_errors` render as a warning banner naming the affected stores. A `prefers-reduced-motion` rule disables the leave animation. See data-flows.md section 18 for the load and refresh flow.
+
+**Pending CSS:** the Tasks section of `styles.css` (`/* ── Tasks view ── */`, scoped under `.tasks-view`) styles the list, filter bar, draft, store menu and pagination, plus `.task-id`. The colour cell (`.task-color`, 18 px column), palette popover (`.palette`, `.palette-grid`, `.swatch`, `.palette-foot`, `.palette-none`), Colour filter button and `.chip-dot` rules live in the same section; dot fills come from the `tc-{id}` classes.

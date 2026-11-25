@@ -84,6 +84,11 @@ var Router = (function () {
       return;
     }
 
+    if (path === '/tasks') {
+      renderTasks(app);
+      return;
+    }
+
     if (path === '/orchestrator') {
       renderOrchestrator(app);
       return;

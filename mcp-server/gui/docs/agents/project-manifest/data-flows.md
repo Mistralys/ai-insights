@@ -130,6 +130,7 @@ User clicks link or navigates
           │   ├── /projects/:repo/:slug/runs/:file  → renderRunLog(app, repo, slug, file)
           │   ├── /config                           → renderConfig(app)
           │   ├── /knowledge                        → renderKnowledge(app)
+          │   ├── /tasks                            → renderTasks(app)
           │   ├── /orchestrator                     → renderOrchestrator(app)
           │   └── (no match)                        → error banner "Page not found"
           └── View render function:
@@ -547,9 +548,9 @@ User clicks a tab button
         │           └── OK      → discarded = true
         ├── leavingTab = configFindTab(configActiveTab)
         ├── leavingTab.leave(discarded)              ← runs unconditionally, discarded defaults to false
-        │     ├── always-reset tabs (Stores, Error Codes):
+        │     ├── always-reset tabs (Stores, Error Codes, Tasks):
         │     │     leave === reset → unconditional reset, regardless of discarded
-        │     │     (increments csVisit / ecVisit, clears module state)
+        │     │     (increments csVisit / ecVisit / ctVisit, clears module state)
         │     └── reset-only-on-discard tabs (Persona Models, Model Registry):
         │           always increments pmVisit / mrVisit (invalidating any in-flight
         │           request's stale check); resets module state only when discarded
@@ -569,6 +570,23 @@ renderConfigPage(app, config, models, personas, assignments, stores)
 **Why a visit-spanning flag is not reset by `leave`/`reset`:** `pmIsBuilding` (Persona Models' rebuild-in-progress flag) and `ecSaveInFlight`/`ecTestInFlight` (Error Codes' request-in-flight flags) intentionally survive a tab switch, so a rebuild or save started on one visit still completes and updates its own flag correctly if the user returns. Each is cleared by its own async callback — never by `leave`/`reset` — before that callback's own visit-token stale check runs, so the flag never gets stuck `true` even when the response that would normally clear it arrives after the tab was left.
 
 **Key invariant:** adding a sixth Configuration tab requires only a new `CONFIG_TABS` descriptor — `renderConfigTabContent()` and the tab-bar click handler both dispatch purely off the array via `configFindTab()`, with no separate branch to update.
+
+**Tasks tab save flow** (`config-tasks.js`):
+
+```
+Submit on #ct-form
+  ├── ctSaveInFlight? → ignore the submit
+  ├── ctValidate(baseUrl, queue, pageSize)
+  │     └── error → showError in #ct-msg, no request
+  ├── visit = ctVisit; ctSaveInFlight = true
+  └── API.updateConfig({ tasks_ticket_base_url, tasks_ticket_queue, tasks_page_size })
+        ├── success → ctSaveInFlight = false; update the in-place config object
+        │     └── visit === ctVisit? → configDirty.tasks = false; success banner
+        └── failure → ctSaveInFlight = false
+              └── visit === ctVisit? → error banner (server rejection, e.g. 400)
+```
+
+A stale callback (the user left the tab mid-request) still clears `ctSaveInFlight` and persists the values into the in-place config object, but writes no banner and leaves `configDirty.tasks` alone.
 
 ---
 
@@ -636,3 +654,64 @@ _doBuild(noticeId)
 
 **Styling:** `.setup-banner` reuses the `--color-banner-stale-{bg,fg,border}` tokens (same as `.stale-banner`), but is `position: static` (non-sticky) so it never fights `.stale-banner` for the sticky top slot — `_ensureContainer()` places `#setup-notices` immediately after `.stale-banner` in the DOM when one exists. `.setup-banner button:focus-visible` uses `--color-banner-stale-fg` (not `-border`) for its outline — hand-computed contrast against the banner's own background clears the 3:1 floor in both themes (`-border` alone does not, in the light theme). No new `@keyframes` are introduced; the building state reuses the existing `.spinner` animation.
 
+---
+
+## 18. Tasks View Load-All and Client-Model Flow (`#/tasks`)
+
+```
+Router.dispatch('#/tasks')
+  └── renderTasks(app)                         (views/tasks.js)
+        ├── tasksRemoveGlobalHandlers()        → drop document/window listeners of a previous render
+        ├── showLoading(app)
+        ├── API.getTasks()                     → GET /api/tasks (all tasks, merged across stores, plus store_errors)
+        │     └── route changed meanwhile?     → discard the response (no .loading node left)
+        └── tasksBuildView(app, data)
+              ├── seed tasksPersist.pageSize from settings.page_size (first visit only)
+              ├── set --task-ref-width on the root from TasksModel.refColumnWidth(tasks) (6–16 ch)
+              ├── TasksModel: filter → sort → pageOf   (client-side; no server-side filtering or paging)
+              ├── TasksRender.*: markup strings → innerHTML (escapeHtml / SafeMarkdown)
+              ├── store_errors → warning banner naming the affected stores
+              └── register one document keydown, click and visibilitychange listener and one window resize listener
+                    (each self-removes once #tasks-root has left the DOM)
+```
+
+State: `tasksPersist` (module level: filter, sort, page, page size) survives re-renders and visits to other tabs; transient state (expanded rows, editing, draft, armed delete, active row) lives in the closure of `tasksBuildView`.
+
+**Mutations:** reference edits, completion, delete and create are server-first (the server normalises and validates; an invalid reference shows the server message with `aria-invalid` and is not saved). Text and tag edits are optimistic and revert on failure. The filter bar is built once, so typing in the search box keeps focus; list, pagination, active filters and drafts re-render per change.
+
+**Refresh:** `visibilitychange` to visible re-fetches via `API.getTasks()` unless an edit, draft, armed delete or open palette is active. A completed task that leaves the current filter stays struck through for about 700 ms, then disappears and focus moves to the neighbouring row. An armed delete reverts after about 3 s or when focus leaves the row.
+
+**Reorder flow** (priority sort only):
+
+```
+handle-armed drag & drop (within the page)  ─┐ dropRow(dragId, targetId, before)
+Alt+↑ / Alt+↓ on the active row              ─┘ moveTask(id, dir)
+  ├── drop: TasksModel.reassignSubset(ids, byId)       → reassigns the page subset's existing priorities
+  ├── Alt+arrow: TasksModel.swapWithNeighbour(visible list, id, dir)   → swaps with the filtered neighbour, crossing pages
+  │     └── persist.page follows the task (TasksModel.placementOf)
+  ├── applyPriorities(assignments)                     → optimistic local update, then render({ focus: true })
+  └── persistOrder(assignments) → API.reorderTasks()   → one reorder endpoint
+        └── request rejected, or result.failed[] non-empty → announce + refetch() (reload from the server)
+```
+
+Drag starts from the move handle only, which is shown in priority sort only; `endDrag()` clears the drag state and drop indicators (`.is-dragging`, `.drop-before`, `.drop-after`). In any other sort, `Alt+↑/↓` produces an announcement and sends no request. The reload is needed because the server writes each store under its own lock, so a batch can apply partially. Known limits: a failed reload is silent (the optimistic order stays displayed), and a drop on a page with tied priorities cannot separate the ties.
+
+**Colour set flow** (row palette, `set` mode):
+
+```
+click on the dot (data-act="color") / `c` on the active row → togglePalette(id) → openPalette('set', id)
+  └── swatch or "No colour" click → paletteClick (stopPropagation first) → setColor(id, color)
+        ├── optimistic: task.color = color; closePalette(false); announce("Colour set to {Name}" | "Colour removed")
+        ├── still passes the colour filter?  yes → rerenderRow(id, 'color')
+        │                                    no  → ui.leaving[id] = true; render; after LEAVE_MS (700 ms) the row is dismissed
+        └── saveTask(id, { color }) → API.updateTask() → PATCH /api/tasks/:id
+              └── request rejected → task.color reverted; ui.leaving[id] cleared; render({ focus: 'color' }); error announced
+```
+
+Choosing the task's current colour only closes the palette (focus returns to the dot) and sends no request. `""` is sent for "No colour".
+
+**Leave rule and `visibleTasks`:** `TasksModel.visibleTasks` skips the status filter **and** the colour filter for ids flagged in `state.leaving`, so a just-completed or just-recoloured row stays visible for about 700 ms before it is dismissed. The store, tag and search filters still apply to leaving rows. The leave check in `setColor` calls `visibleTasks` with an empty `leaving` map to decide whether the recoloured task still belongs on the page.
+
+**Colour filter flow** (`filter` mode): a swatch click calls `changeColorFilter(key)`, which toggles the key through `TasksModel.toggleColor` (OR semantics), resets the page to 1, rebuilds the filter bar, re-renders the list and the palette (focus on the toggled swatch) and announces "N tasks match the colour filter"; "Any" (or "Clear filters") empties the selection and announces "Colour filter cleared". The palette stays open throughout.
+
+**Palette lifecycle:** one `#palette` element lives inside `#tasks-root`. `openPalette` closes any open palette first, so opening the filter palette closes a row palette. A re-render (`render`) closes a `set` palette whose row is no longer on the page, otherwise re-places it; `resize` re-places it; the `visibilitychange` refetch is skipped while it is open. The document-level click closer closes it for clicks outside `#palette`, the colour dots and `#f-color`, and ignores clicks whose target is no longer in the document (see constraints.md, "Popovers That Re-render Themselves").

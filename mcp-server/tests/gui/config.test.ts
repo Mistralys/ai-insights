@@ -18,6 +18,9 @@ import {
   stopConfigWatcher,
   __resetForTesting,
   DEFAULT_CONFIG,
+  GuiConfigSchema,
+  GuiConfigPartialSchema,
+  getTaskSettings,
 } from '../../src/gui/config.js';
 
 // ---------------------------------------------------------------------------
@@ -288,5 +291,72 @@ describe('gui/config.ts', () => {
     expect(getConfig().max_handoff_depth).toBe(2);
 
     stopConfigWatcher();
+  });
+});
+
+describe('gui/config.ts task settings', () => {
+  let tempDir: string;
+  let configPath: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), 'gui-config-tasks-test-'));
+    configPath = join(tempDir, 'gui-config.json');
+    __resetForTesting();
+  });
+
+  afterEach(async () => {
+    __resetForTesting();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it('defaults the three keys when absent from an existing config file', async () => {
+    await writeJson(configPath, { auto_handoff_enabled: false });
+    const cfg = await readConfigFromDisk(configPath);
+    expect(cfg.tasks_ticket_base_url).toBe('');
+    expect(cfg.tasks_ticket_queue).toBe('');
+    expect(cfg.tasks_page_size).toBe(20);
+  });
+
+  it('DEFAULT_CONFIG deep-equals GuiConfigSchema.parse({})', () => {
+    expect(DEFAULT_CONFIG).toEqual(GuiConfigSchema.parse({}));
+  });
+
+  it.each([
+    [{ tasks_ticket_base_url: 'ftp://x/' }],
+    [{ tasks_ticket_base_url: 'javascript:alert(1)' }],
+    [{ tasks_ticket_base_url: 'not a url' }],
+    [{ tasks_ticket_queue: '1ABC' }],
+    [{ tasks_ticket_queue: 'AB-C' }],
+    [{ tasks_ticket_queue: 'A'.repeat(33) }],
+    [{ tasks_page_size: 4 }],
+    [{ tasks_page_size: 201 }],
+    [{ tasks_page_size: 10.5 }],
+  ])('GuiConfigPartialSchema rejects %j', (input) => {
+    expect(GuiConfigPartialSchema.safeParse(input).success).toBe(false);
+  });
+
+  it.each([
+    [{ tasks_ticket_base_url: '' }],
+    [{ tasks_ticket_base_url: 'https://t.example/browse/' }],
+    [{ tasks_ticket_queue: '' }],
+    [{ tasks_ticket_queue: 'ABC-' }],
+    [{ tasks_ticket_queue: 'abc_1' }],
+    [{ tasks_page_size: 5 }],
+    [{ tasks_page_size: 200 }],
+  ])('GuiConfigPartialSchema accepts %j', (input) => {
+    expect(GuiConfigPartialSchema.safeParse(input).success).toBe(true);
+  });
+
+  it('getTaskSettings maps the three keys', async () => {
+    await writeConfig(configPath, {
+      tasks_ticket_base_url: 'https://t.example/',
+      tasks_ticket_queue: 'ABC',
+      tasks_page_size: 50,
+    });
+    expect(getTaskSettings()).toEqual({
+      ticket_base_url: 'https://t.example/',
+      ticket_queue: 'ABC',
+      page_size: 50,
+    });
   });
 });

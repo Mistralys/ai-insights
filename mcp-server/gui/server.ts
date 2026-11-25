@@ -80,6 +80,13 @@ import {
   handleMoveKnowledge,
 } from './api-knowledge.js';
 import {
+  handleListTasks,
+  handleCreateTask,
+  handleUpdateTask,
+  handleDeleteTask,
+  handleReorderTasks,
+} from './api-tasks.js';
+import {
   handleListRepos,
   handleGetRepo,
   handleCreateRepo,
@@ -1314,6 +1321,7 @@ function buildProjectRoutes(
  *   - {@link buildKnowledgeRoutes}    — `/api/knowledge/*`
  *   - {@link buildModelRoutes}        — `/api/models/*`, `/api/model-assignments/*`, `/api/personas/*`
  *   - {@link buildStoreRoutes}        — `/api/stores/*`
+ *   - {@link buildTaskRoutes}         — `/api/tasks/*`
  *   - {@link buildProjectRoutes}      — `/api/projects/*`
  *
  * The composed array preserves the Section A/B/C ordering invariant:
@@ -1336,6 +1344,44 @@ function buildProjectRoutes(
  *     `/:slug/synthesis`, etc.) if they were declared before them, permanently
  *     breaking backward compatibility with pre-namespace clients.
  */
+/**
+ * Task routes (the GUI's Tasks tab).
+ *
+ *   GET    /api/tasks
+ *   POST   /api/tasks/order
+ *   POST   /api/tasks
+ *   PATCH  /api/tasks/:id
+ *   DELETE /api/tasks/:id
+ *
+ * Mutations change the user's own data and the GUI binds every interface
+ * without authentication, so every mutation carries `requireLoopbackRequest`
+ * and the body-carrying ones also `requireJsonContentType`. `GET` stays
+ * unguarded, consistent with the other read routes.
+ */
+function buildTaskRoutes(): Route[] {
+  return [
+    // POST /api/tasks/order — declared before the `:id` routes
+    { method: 'POST', path: '/api/tasks/order',
+      guards: [requireLoopbackRequest, requireJsonContentType],
+      handler: async (body) => handleReorderTasks(body) },
+    // POST /api/tasks
+    { method: 'POST', path: '/api/tasks', statusCode: 201,
+      guards: [requireLoopbackRequest, requireJsonContentType],
+      handler: async (body) => handleCreateTask(body) },
+    // PATCH /api/tasks/:id
+    { method: 'PATCH', path: /^\/api\/tasks\/(?<id>[^/]+)$/,
+      guards: [requireLoopbackRequest, requireJsonContentType],
+      handler: async (body, groups) => handleUpdateTask(groups!.id!, body) },
+    // GET /api/tasks
+    { method: 'GET', path: '/api/tasks', noBody: true,
+      handler: async () => handleListTasks() },
+    // DELETE /api/tasks/:id
+    { method: 'DELETE', path: /^\/api\/tasks\/(?<id>[^/]+)$/, noBody: true,
+      guards: [requireLoopbackRequest],
+      handler: async (_body, groups) => handleDeleteTask(groups!.id!) },
+  ];
+}
+
 /**
  * Error-code provider routes (the GUI's Error Codes settings tab).
  *
@@ -1391,6 +1437,7 @@ export function buildRoutes(
     ...buildModelRoutes(),
     ...buildStoreRoutes(ledgerRoot),
     ...buildErrorCodeRoutes(),
+    ...buildTaskRoutes(),
     ...buildProjectRoutes(ledgerRoot, orchestratorLogsDir),
   ];
 }

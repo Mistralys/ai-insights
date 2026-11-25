@@ -14,6 +14,7 @@ import type { FSWatcher } from 'fs';
 import { z } from 'zod';
 import { atomicWriteJson } from '../storage/atomic-writer.js';
 import { hasErrorCode } from '../utils/node-errors.js';
+import { isSafeTicketBaseUrl } from '../utils/ticket-reference.js';
 
 // ---------------------------------------------------------------------------
 // Schema & Types
@@ -25,6 +26,18 @@ export const GuiConfigSchema = z.object({
   auto_archive_days: z.number().int().min(0).default(6),
   capture_dialogues: z.boolean().default(true),
   ledger_root: z.string().default(''),
+  tasks_ticket_base_url: z
+    .string()
+    .refine((v) => v === '' || isSafeTicketBaseUrl(v), {
+      message: 'Ticket base URL must be empty or an absolute http(s) URL',
+    })
+    .default(''),
+  tasks_ticket_queue: z
+    .string()
+    .max(32)
+    .regex(/^([A-Za-z][A-Za-z0-9_]*-?)?$/, 'Invalid ticket queue')
+    .default(''),
+  tasks_page_size: z.number().int().min(5).max(200).default(20),
 });
 
 export type GuiConfig = z.infer<typeof GuiConfigSchema>;
@@ -42,13 +55,7 @@ export type GuiConfigPartial = z.infer<typeof GuiConfigPartialSchema>;
 // Defaults
 // ---------------------------------------------------------------------------
 
-export const DEFAULT_CONFIG: GuiConfig = {
-  auto_handoff_enabled: true,
-  max_handoff_depth: 100,
-  auto_archive_days: 6,
-  capture_dialogues: true,
-  ledger_root: '',
-};
+export const DEFAULT_CONFIG: GuiConfig = GuiConfigSchema.parse({});
 
 // ---------------------------------------------------------------------------
 // Module-level singleton cache
@@ -226,6 +233,22 @@ export function startConfigWatcher(configPath: string): void {
       `[config] Could not start file watcher on ${configPath}: ${String(err)}\n`
     );
   }
+}
+
+/** Task display and normalisation settings, as consumed by the task tools and GUI. */
+export interface TaskSettings {
+  ticket_base_url: string;
+  ticket_queue: string;
+  page_size: number;
+}
+
+/** Returns the task settings from the cached config. The only accessor for the `tasks_*` keys. */
+export function getTaskSettings(): TaskSettings {
+  return {
+    ticket_base_url: _cache.tasks_ticket_base_url,
+    ticket_queue: _cache.tasks_ticket_queue,
+    page_size: _cache.tasks_page_size,
+  };
 }
 
 /**

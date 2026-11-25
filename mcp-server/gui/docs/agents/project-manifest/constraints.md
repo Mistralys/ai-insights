@@ -30,6 +30,7 @@
 - [19. JSDoc Closure-Dependency Documentation](#19-jsdoc-closure-dependency-documentation-for-gui-helpers)
 - [20. API Client `@throws` JSDoc](#20-api-client-methods-that-reject-on-server-error-must-carry-throws-jsdoc)
 - [25. Config Tab Modules](#25-config-tab-modules)
+- [26. User Markdown Goes Through SafeMarkdown](#26-user-markdown-goes-through-safemarkdown)
 
 **Backend**
 
@@ -202,6 +203,8 @@ The error-code provider routes (`/api/error-codes/*`, `gui/api-error-codes.ts`) 
 
 **Anti-pattern:** adding a new error-code route without `requireLoopbackRequest`, or a `PUT`/`POST` one without `requireJsonContentType`, or implementing a settings merge for any future route that does not follow the fail-closed rule above.
 
+**Task routes (`/api/tasks*`, `gui/api-tasks.ts`):** the same two guards apply to mutations, because they change the user's own data on a server with no authentication. `POST /api/tasks`, `POST /api/tasks/order` and `PATCH /api/tasks/:id` carry `requireLoopbackRequest` and `requireJsonContentType` (403 / 415); `DELETE /api/tasks/:id` carries `requireLoopbackRequest`. `GET /api/tasks` is deliberately unguarded, consistent with the other read routes. Task error messages never contain a filesystem path.
+
 ### Security Headers
 
 All responses include:
@@ -279,7 +282,7 @@ Legacy non-namespaced routes (e.g., `/api/projects/:slug`) are retained for back
 Script and stylesheet references in `index.html` use `?v=N` query parameters for cache busting:
 
 ```html
-<script src="/api-client.js?v=3"></script>
+<script src="/api-client.js?v=N"></script>
 ```
 
 When modifying a frontend file, increment its `?v=N` parameter in `index.html` to ensure browsers pick up the change.
@@ -418,6 +421,7 @@ Each API domain owns a dedicated handler module imported by `server.ts`. No hand
 | `gui/api-repos.ts` | `/api/repos*` handlers, `RepoCreateBodySchema`, `RepoUpdateBodySchema`, `RepoListItem`, `assertNoFolderNameConflicts` |
 | `gui/api-stores.ts` | `/api/stores/*` handlers, their Zod body schemas, `StoreListItem` |
 | `gui/api-models.ts` | Model registry and persona-assignment handlers |
+| `gui/api-tasks.ts` | `/api/tasks*` handlers, `TaskCreateBodySchema`, `TaskUpdateBodySchema`, `TaskReorderBodySchema`, `parseTaskId`, `TaskListResponse` |
 | `gui/api-error-codes.ts` | `/api/error-codes/*` handlers, `PutErrorCodeConfigBodySchema`, `TestErrorCodeProviderBodySchema`, `ProviderListItem`, `ErrorCodeConfigResponse`, `TestConnectionResponse` |
 
 **Rationale:** `gui/api.ts` had grown into a maintenance liability. Extracting each domain into its own module isolates ownership and prevents drift back into `api.ts`. Each extracted module re-defines `validationError` locally (importing `ApiError` directly) rather than re-exporting it from `api.ts`.
@@ -509,7 +513,7 @@ node scripts/run-gui.js   # collides with the LIVE instance on port 3420
 | Queue file locking gap | TypeScript uses atomic rename; Python uses `.run-queue.lock`. Concurrent writes could race (low risk). |
 | No authentication | Local development tool; assumes trusted network. |
 | GUI binds every network interface | `server.listen(port, …)` in `gui/server.ts` passes no host, so the server accepts connections on any interface, not just loopback — it relies on the error-code routes' own `requireLoopbackRequest` guard (§7) rather than on the socket binding itself. Binding to `127.0.0.1` was rejected (see the error-code-generator plan's "Rejected Approaches") because it would change every existing route's reachability, outside that plan's blast radius. |
-| Markdown rendered without HTML sanitization | All markdown rendering (`work-package.js`, `project-detail-dialogues.js`, plan/synthesis views) passes content through `marked.parse()` without DOMPurify or equivalent. Acceptable because all rendered content is server-authored by MCP tools from agent pipelines. If the system ever accepts markdown from untrusted sources (user-submitted descriptions, external imports), a sanitization step must be added before rendering. |
+| Markdown rendered without HTML sanitization | All markdown rendering (`work-package.js`, `project-detail-dialogues.js`, plan/synthesis views) passes content through `marked.parse()` without DOMPurify or equivalent. Acceptable because all rendered content is server-authored by MCP tools from agent pipelines. If the system ever accepts markdown from untrusted sources (user-submitted descriptions, external imports), a sanitization step must be added before rendering. User-authored Markdown (task text) is the exception: it must go through `SafeMarkdown` (§26). |
 
 ---
 
@@ -526,6 +530,7 @@ The Configuration view (`views/config.js`) is a tab coordinator with no tabs of 
 | `personaModels` | `config-persona-models.js` | `configDirty.personaModels` | `leave: pmLeaveTab(discarded)` (resets only when `discarded`), `reset: pmResetState()` (always resets, calls `pmLeaveTab(true)`) |
 | `modelRegistry` | `config-model-registry.js` | `configDirty.modelRegistry` | `leave: mrLeaveTab(discarded)` (resets only when `discarded`), `reset: mrResetState()` (always resets, calls `mrLeaveTab(true)`) |
 | `errorCodes` | `config-error-codes.js` | `configDirty.errorCodes` | `leave`/`reset` both map to `ecResetState()` — always resets unconditionally |
+| `tasks` | `config-tasks.js` | `configDirty.tasks` | `leave`/`reset` both map to `ctResetState()` — always resets unconditionally (increments `ctVisit`, removes the form listeners) |
 
 Each descriptor is `{ key, label, render, leave, reset }`. `render(config, models, personas, assignments, stores)` populates `#config-tab-content` and wires its events (a tab ignores arguments it does not need); `leave(discarded)` runs when the tab-bar handler is about to switch away from this tab, after its `confirm()` guard (if the tab was dirty) has already run; `reset()` runs with no arguments from `renderConfigPage()` on every fresh page load. `configFindTab(key)` looks up a descriptor by key.
 
@@ -543,3 +548,58 @@ Each descriptor is `{ key, label, render, leave, reset }`. `render(config, model
 5. **Guard async callbacks with a visit token** — a tab module that fires requests (lazy load, save, test, rebuild) holds a monotonic token incremented by its `leave`/`reset` function (point 3). Every request callback captures the token before the request and returns early — in both `.then` and `.catch` — when it no longer matches, so a response that settles after the user left cannot write into the shared `#config-tab-content` or repopulate state that was just cleared. A flag that spans visits by design (`ecSaveInFlight`, `pmIsBuilding`) is still cleared by its own callback before the stale check, even when the response is stale. Reference implementations: `config-error-codes.js` (`ecVisit`), `config-stores.js` (`csVisit`), `config-model-registry.js` (`mrVisit`), `config-persona-models.js` (`pmVisit`), and `strategy.js`'s `refreshSeq`.
 
 **Exception — calls to global GUI-shell state are never visit-gated:** `pmDoRebuild()`'s success callback calls `window.SetupNotices.refresh()` (guarded by the module's presence) immediately, *before* its own `pmVisit` staleness check — unlike every other statement in that callback. This is deliberate: `SetupNotices`'s `#setup-notices` banner is global GUI-shell state, not Persona-Models-tab state, so a stale `pmVisit` (the user left the tab) must not suppress it. Do not move this call below the `pmVisit` check, and do not generalise the pattern to any state inside `#config-tab-content` — only a call into a module outside the tab's own DOM subtree qualifies for this exception. See `data-flows.md` §17 for the full `SetupNotices` lifecycle.
+
+---
+
+## 26. User Markdown Goes Through SafeMarkdown
+
+**Rule:** User-authored Markdown (for example task text) is rendered only through `SafeMarkdown.render()` / `SafeMarkdown.renderInline()` (`public/safe-markdown.js`), never through the global `marked.parse()` / `marked.parseInline()`.
+
+- `SafeMarkdown` uses a private `marked.Marked` instance, so the global `marked` defaults (used by the plan, synthesis and dialogue views) are untouched.
+- Raw HTML tokens are escaped, not emitted. `<script>` and `<img onerror>` input renders as visible text.
+- Links render as anchors only for `http:`, `https:` and `mailto:` (checked after stripping control characters and whitespace), with `target="_blank" rel="noopener noreferrer"`. Any other scheme, including scheme-less and relative hrefs, renders the link text as plain label text with no anchor.
+- Images never produce `<img>`; they render as a link under the same scheme rule, using the alt text as label.
+- Code spans are escaped exactly once (no double escaping).
+- If `marked` is absent, `render` falls back to escaped text with `<br>` line breaks.
+- **Consumers must insert the output via `innerHTML` only, with no second decoding or escaping step.** Do not pass the result through `escapeHtml()` or re-parse it.
+- Load order: `safe-markdown.js` must be loaded directly after `libs/marked.min.js` in `index.html`.
+- Migrating the dialogue view (which still pre-escapes and uses the global `marked`) to `SafeMarkdown` is out of scope for the task-list work.
+
+---
+
+## 27. Task Colours Render Only Through Tokens and `.tc-{id}` Classes
+
+**Rule:** Task colours are rendered only through the `--task-color-{id}` custom properties and the `.tc-{id}` dot classes in `public/styles.css`. JavaScript, inline styles and other CSS rules must not carry task colour hex values.
+
+- The colour ids and their order come from the server's `TASK_COLOR_IDS`; the GUI applies `class="tc-{id}"` to a dot element and never a literal colour.
+- Per-theme colour values live only in the `:root` and `[data-theme="dark"]` token blocks, so re-tuning a colour for a theme is a CSS-only change.
+- See `ui-components.md` ("Task Colour Tokens") for the token and class list.
+
+---
+
+## 28. TasksModel Mirrors the Server and Is Held by Parity Tests
+
+**Rule:** `public/views/tasks-model.js` (the `TasksModel` namespace) is pure ES5 with no DOM and no globals. The browser cannot import TypeScript, so it re-implements server logic: the comparator mirrors `compareTasks` (`src/schema/task.ts`); the status, store, tag and colour predicates mirror `matchesFilters` (`src/storage/task-collection.ts`); `normaliseTag`, `colorKey` and `PALETTE` mirror `normaliseTag`, `colorKey` and `TASK_COLOR_IDS`. A change to either side must change the other in the same change.
+
+- `tests/gui/tasks-parity.test.ts` runs `TasksModel.visibleTasks` (empty search) and the server's `matchesFilters` + `compareTasks` over one fixture and requires the same ids in the same order, for every sort and for the status, store, tag and colour filters alone and combined.
+- `tests/gui/tasks-palette-pin.test.ts` requires `PALETTE` ids to equal `TASK_COLOR_IDS` in order, a `--task-color-{id}` declaration in both theme blocks and a `.tc-{id}` rule in `styles.css` for every id, and `TasksModel.colorKey` to equal the server `colorKey`.
+- **Search differs on purpose:** the client search is multi-term AND over text, `ticket_label` and tags; the server (`searchTasks`, `ledger_search_tasks`) is OR-ranked. The parity test therefore uses an empty search.
+- Filtering, sorting and paging run client-side over the full list from `GET /api/tasks`, because cross-page `Alt+Up/Down`, cross-page arrow navigation and "shown on page N" need the whole ordered list.
+- Equal priorities cannot be swapped, so `swapWithNeighbour` gives the task that must end up higher `priority + 1`; this relies on both sides agreeing on the tie-breaker.
+
+**Anti-pattern:** editing the comparator, a predicate or the palette on one side only.
+
+---
+
+## 29. Popovers That Re-render Themselves Must Not Rely on a Live Click Target
+
+**Rule:** a popover whose own click handler rebuilds its content (the Tasks colour palette in `filter` mode) detaches the clicked element before the click reaches the document-level outside-click closer. Such a popover must be protected by two independent guards:
+
+1. **Stop propagation** in the popover's own click handler (`paletteClick` calls `e.stopPropagation()` first).
+2. **Ignore detached targets** in the document closer: return early when `!document.documentElement.contains(e.target)`, since a target that left the DOM says nothing about where the user clicked.
+
+- The closer closes the palette only for clicks outside `#palette`, the colour dots (`[data-act="color"]`) and the Colour filter button (`#f-color`).
+- The palette lives inside `#tasks-root` (not `document.body`) so it disappears with the view; the document and window listeners are removed by `tasksRemoveGlobalHandlers()`.
+- While a palette is open the `visibilitychange` refetch is skipped, and a re-render closes a `set` palette whose task is no longer on the page.
+
+**Anti-pattern:** a closer that tests `contains` on the click target only, or a re-rendering popover that does not stop propagation.
