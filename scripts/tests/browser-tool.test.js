@@ -3,7 +3,8 @@
  *
  * Unit tests for scripts/lib/browser-tool.js and the shim entry declared in
  * the workspace root package.json, including the shim's guards (named
- * session, output directory, teardown --force).
+ * session incl. `attach <name>`, output directory, absolute file paths,
+ * teardown --force, help path rewrite).
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
@@ -19,6 +20,8 @@ import {
   parseBrowserArgs,
   browserOutputDir,
   prepareBrowserInvocation,
+  resolveBrowserSession,
+  absolutizeHelpOutput,
 } from '../lib/browser-tool.js';
 import { spawnSync } from 'child_process';
 
@@ -139,6 +142,41 @@ describe('parseBrowserArgs', () => {
   it('stops parsing at --', () => {
     expect(parseBrowserArgs(['eval', '--', '-s=x']).session).toBeNull();
   });
+
+  it('collects the operands after the command', () => {
+    expect(parseBrowserArgs(['-s=a', 'fill', 'e1', 'hello']).operands).toEqual(['e1', 'hello']);
+    expect(parseBrowserArgs(['attach', 'my-browser']).operands).toEqual(['my-browser']);
+    expect(parseBrowserArgs(['--json', 'attach', 'my-browser', '--raw']).operands).toEqual(['my-browser']);
+  });
+
+  it('does not take an option value as an operand', () => {
+    expect(parseBrowserArgs(['attach', '--cdp', 'chrome']).operands).toEqual([]);
+    expect(parseBrowserArgs(['attach', '--cdp=chrome']).operands).toEqual([]);
+    expect(parseBrowserArgs(['attach', '--extension', 'chrome']).operands).toEqual([]);
+    expect(parseBrowserArgs(['attach', 'my-browser', '--idle-timeout', '500']).operands).toEqual(['my-browser']);
+  });
+});
+
+describe('resolveBrowserSession', () => {
+  const resolve = (argv, env = {}) => resolveBrowserSession(parseBrowserArgs(argv), env);
+
+  it('uses the attach name when no session is set', () => {
+    expect(resolve(['attach', 'my-browser'])).toBe('my-browser');
+  });
+
+  it('prefers the session option and PLAYWRIGHT_CLI_SESSION over the attach name', () => {
+    expect(resolve(['-s=opt', 'attach', 'my-browser'])).toBe('opt');
+    expect(resolve(['attach', 'my-browser'], { PLAYWRIGHT_CLI_SESSION: 'env' })).toBe('env');
+  });
+
+  it('ignores the first operand of other commands', () => {
+    expect(resolve(['goto', 'http://x'])).toBeNull();
+  });
+
+  it('is null for attach without a name', () => {
+    expect(resolve(['attach', '--cdp=chrome'])).toBeNull();
+    expect(resolve(['attach', ''])).toBeNull();
+  });
 });
 
 describe('browserOutputDir', () => {
@@ -185,6 +223,24 @@ describe('prepareBrowserInvocation', () => {
       expect(r.args).toEqual(['-s=default', 'open']);
     });
 
+    it.each([[['attach', 'my-browser']], [['attach', 'my-browser', '--idle-timeout=0']], [['--json', 'attach', 'b1']]])(
+      'accepts %j as a named session',
+      (argv) => { expect(run(argv).ok).toBe(true); },
+    );
+
+    it('keys the output directory on the attach name', () => {
+      expect(run(['attach', 'my-browser']).outputDir).toBe(path.join(tmp, BROWSER_COMMAND, 'my-browser'));
+    });
+
+    it.each([[['attach', '--cdp=chrome']], [['attach', '--cdp', 'chrome']], [['attach', '--extension']], [['attach']]])(
+      'refuses %j, which falls back to the shared session',
+      (argv) => {
+        const r = run(argv);
+        expect(r.ok).toBe(false);
+        expect(r.message).toContain('no session named');
+      },
+    );
+
     it.each([[['--help']], [['open', '--help']], [['--version']], [['list']], [[]], [['install-browser', 'chromium']]])(
       'exempts %j',
       (argv) => { expect(run(argv).ok).toBe(true); },
@@ -215,6 +271,26 @@ describe('prepareBrowserInvocation', () => {
     });
   });
 
+  describe('file paths', () => {
+    it('defaults PLAYWRIGHT_MCP_FILE_PATHS to absolute', () => {
+      expect(run(['-s=t1', 'open']).env.PLAYWRIGHT_MCP_FILE_PATHS).toBe('absolute');
+      expect(run(['attach', 'b1']).env.PLAYWRIGHT_MCP_FILE_PATHS).toBe('absolute');
+    });
+
+    it('never overrides a caller-set PLAYWRIGHT_MCP_FILE_PATHS', () => {
+      const r = run(['-s=t1', 'open'], { PLAYWRIGHT_MCP_FILE_PATHS: 'relative' });
+      expect(r.env.PLAYWRIGHT_MCP_FILE_PATHS).toBe('relative');
+    });
+
+    it('flags global help for the Agent skill rewrite, and nothing else', () => {
+      expect(run(['--help']).rewriteHelp).toBe(true);
+      expect(run([]).rewriteHelp).toBe(true);
+      expect(run(['--json', '--help']).rewriteHelp).toBe(true);
+      expect(run(['--version']).rewriteHelp).toBe(false);
+      expect(run(['-s=t1', 'snapshot']).rewriteHelp).toBe(false);
+    });
+  });
+
   describe('teardown guard', () => {
     it.each(['close-all', 'kill-all'])('refuses %s without --force', (cmd) => {
       const r = run([cmd]);
@@ -239,6 +315,38 @@ describe('prepareBrowserInvocation', () => {
   });
 });
 
+describe('absolutizeHelpOutput', () => {
+  const cwd = path.join(os.tmpdir(), 'work');
+  const rel = path.join('..', 'tools', 'SKILL.md');
+  const abs = path.resolve(cwd, rel);
+  const NL  = '\n';
+
+  it('makes the Agent skill path absolute in text help', () => {
+    const out = ['playwright-cli - x', '', `Agent skill: ${rel}`, '', 'Usage: y', ''].join(NL);
+    const expected = ['playwright-cli - x', '', `Agent skill: ${abs}`, '', 'Usage: y', ''].join(NL);
+    expect(absolutizeHelpOutput(out, cwd)).toBe(expected);
+  });
+
+  it('keeps CRLF line endings', () => {
+    const out = [`Agent skill: ${rel}`, 'Usage', ''].join('\r\n');
+    expect(absolutizeHelpOutput(out, cwd)).toBe([`Agent skill: ${abs}`, 'Usage', ''].join('\r\n'));
+  });
+
+  it("rewrites the path inside --json help, in the CLI's 2-space format", () => {
+    const help = (file) => ['x', '', `Agent skill: ${file}`, '', 'Usage'].join(NL);
+    const out = JSON.stringify({ help: help(rel) }, null, 2) + NL;
+    const expected = JSON.stringify({ help: help(abs) }, null, 2) + NL;
+    expect(absolutizeHelpOutput(out, cwd)).toBe(expected);
+  });
+
+  it('leaves output without an Agent skill line untouched', () => {
+    const json = JSON.stringify({ help: 'Usage' }, null, 2) + NL;
+    expect(absolutizeHelpOutput(json, cwd)).toBe(json);
+    expect(absolutizeHelpOutput('Usage: x' + NL, cwd)).toBe('Usage: x' + NL);
+    expect(absolutizeHelpOutput('{ not json', cwd)).toBe('{ not json');
+  });
+});
+
 describe('ai-insights-browser shim', () => {
   const shim = path.join(WORKSPACE_ROOT, 'scripts', 'ai-insights-browser.js');
   const exec = (args) => {
@@ -249,6 +357,37 @@ describe('ai-insights-browser shim', () => {
 
   it('exits 1 with the session error when no session is named', () => {
     const r = exec(['snapshot']);
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain('no session named');
+  });
+
+  describe.skipIf(!isBrowserToolInstalled())('global help (needs the installed CLI)', () => {
+    const help = (args) => spawnSync(process.execPath, [shim, ...args], {
+      encoding: 'utf8',
+      cwd: tmp,
+      env: { ...process.env, CLAUDECODE: '1' },
+    });
+
+    it('prints the Agent skill path as an existing absolute path', () => {
+      const r = help(['--help']);
+      expect(r.status).toBe(0);
+      const file = /^Agent skill: (.+?)\r?$/m.exec(r.stdout)?.[1];
+      expect(file).toBeDefined();
+      expect(path.isAbsolute(file)).toBe(true);
+      expect(fs.existsSync(file)).toBe(true);
+    });
+
+    it('prints it absolute inside --json help as well', () => {
+      const r = help(['--json', '--help']);
+      expect(r.status).toBe(0);
+      const file = /^Agent skill: (.+?)\r?$/m.exec(JSON.parse(r.stdout).help)?.[1];
+      expect(path.isAbsolute(file)).toBe(true);
+      expect(fs.existsSync(file)).toBe(true);
+    });
+  });
+
+  it('exits 1 for attach without a name', () => {
+    const r = exec(['attach', '--cdp=chrome']);
     expect(r.status).toBe(1);
     expect(r.stderr).toContain('no session named');
   });

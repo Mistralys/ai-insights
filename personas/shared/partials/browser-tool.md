@@ -25,7 +25,7 @@ Every command takes `-s={SESSION}` to pick the session, shown once here:
 ### Usage Notes
 
 - **Every call names its session.** The command refuses to run without `-s`, because the unnamed session is shared by every agent and terminal on the machine. A name built from this agent and the task, such as `-s={{cc_name}}-{TASK_TAG}`, keeps your page from being navigated away by a parallel agent.
-- **Snapshot files go to the temp folder.** Snapshots and unnamed screenshots land in `ai-insights-browser/{SESSION}` under the system temp directory, never in the project. The link the command prints is relative to the current directory, so it looks like a long `..\..\` path. A screenshot saved with a relative `--filename` is the exception: it lands in the current directory.
+- **Snapshot files go to the temp folder.** Snapshots and unnamed screenshots land in `ai-insights-browser/{SESSION}` under the system temp directory, never in the project. Every file link the command prints is an absolute path, ready to open. A screenshot saved with a relative `--filename` is the exception: it lands in the current directory.
 - **Session-wide teardown is guarded.** `close-all` and `kill-all` end every agent's sessions, and the command refuses them unless `--force` is passed.
 - **PowerShell and `cmd.exe` split URLs at `&`.** A URL with several query parameters is cut short there. In PowerShell, `--%` before the command's arguments passes the rest through as written. Bash needs only the usual quotes.
 - **A missing command means a missing install.** The shell reports the command as not found, or the command prints an install hint. Installing downloads a browser and changes global npm links, so it is the user's step: `ai-insights setup --components browser`.

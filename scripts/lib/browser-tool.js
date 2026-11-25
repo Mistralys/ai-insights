@@ -21,9 +21,11 @@
  * Shim guard API (used by scripts/ai-insights-browser.js):
  *   SHARED_SESSION_NAME        — name of the machine-wide shared Playwright session
  *   TEARDOWN_COMMANDS          — commands that end every session on the machine
- *   parseBrowserArgs(argv)     — session, command and help/version flags of an argument list
+ *   parseBrowserArgs(argv)     — session, command, operands and help/version flags of an argument list
+ *   resolveBrowserSession(parsed, env?) — session a command runs in (option, env, or `attach <name>`)
  *   browserOutputDir(session, tmpDir?) — per-session output directory outside the project
  *   prepareBrowserInvocation(opts) — apply the shim's guards; returns forwarded args + env, or an error
+ *   absolutizeHelpOutput(output, cwd?) — make the global help's `Agent skill:` path absolute
  *
  * Dependency direction: this file MUST NOT import from scripts/cli.js
  * (it is imported by scripts/lib/health-checks.js).
@@ -173,21 +175,50 @@ const SESSION_ENV = 'PLAYWRIGHT_CLI_SESSION';
 const OUTPUT_DIR_ENV = 'PLAYWRIGHT_MCP_OUTPUT_DIR';
 
 /**
- * Pick the session name, command and help/version flags out of an argument
- * list. Recognised session forms: `-s=NAME`, `-s NAME`, `--session=NAME`,
- * `--session NAME`. An empty name counts as no name. Parsing stops at `--`.
+ * Environment variable Playwright reads as the file path rendering mode
+ * ("relative" to the caller's cwd, or "absolute"). Read by the session's
+ * daemon when it starts (`open` / `attach`); it overrides config files.
+ */
+const FILE_PATHS_ENV = 'PLAYWRIGHT_MCP_FILE_PATHS';
+
+/** Command whose first operand also names the session (Playwright: "defaults to bound browser name"). */
+const ATTACH_COMMAND = 'attach';
+
+/**
+ * Global flags of the Playwright CLI (`--help`, "Global options") that take
+ * no value. Any other bare `--option` / `-o` may consume the next token as
+ * its value (Playwright parses with minimist), so the token after it is not
+ * taken as an operand.
+ */
+const VALUELESS_GLOBAL_FLAGS = Object.freeze(['--help', '--version', '--json', '--raw', '--force']);
+
+/**
+ * Pick the session name, command, operands and help/version flags out of an
+ * argument list. Recognised session forms: `-s=NAME`, `-s NAME`,
+ * `--session=NAME`, `--session NAME`. An empty name counts as no name.
+ * Parsing stops at `--`.
+ *
+ * Operands are the positional arguments after the command. A token directly
+ * after a bare option other than VALUELESS_GLOBAL_FLAGS is treated as that
+ * option's value, not as an operand — erring towards "no operand" keeps the
+ * session guard strict (e.g. `attach --cdp chrome` has no operand).
  * @param {string[]} argv  Arguments after the command name
- * @returns {{ session: string | null, command: string | null, help: boolean, version: boolean }}
+ * @returns {{ session: string | null, command: string | null, operands: string[], help: boolean, version: boolean }}
  */
 export function parseBrowserArgs(argv) {
-  let session = null;
-  let command = null;
-  let help    = false;
-  let version = false;
+  let session  = null;
+  let command  = null;
+  let help     = false;
+  let version  = false;
+  let optValue = false;
+  const operands = [];
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === '--') break;
+
+    const afterOption = optValue;
+    optValue = false;
 
     const eq = /^(?:-s|--session)=(.*)$/.exec(arg);
     if (eq) {
@@ -204,10 +235,34 @@ export function parseBrowserArgs(argv) {
     }
     if (arg === '--help')    { help = true;    continue; }
     if (arg === '--version') { version = true; continue; }
-    if (command === null && !arg.startsWith('-')) command = arg;
+    if (arg.startsWith('-')) {
+      optValue = !arg.includes('=') && !VALUELESS_GLOBAL_FLAGS.includes(arg);
+      continue;
+    }
+    if (command === null) {
+      command = arg;
+      continue;
+    }
+    if (!afterOption) operands.push(arg);
   }
 
-  return { session, command, help, version };
+  return { session, command, operands, help, version };
+}
+
+/**
+ * Session a command will run in, following Playwright's own resolution:
+ * the session option, then PLAYWRIGHT_CLI_SESSION, then — for `attach` only —
+ * the bound browser name given as its first operand. Null means the shared
+ * "default" session.
+ * @param {ReturnType<typeof parseBrowserArgs>} parsed
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {string | null}
+ */
+export function resolveBrowserSession(parsed, env = process.env) {
+  if (parsed.session) return parsed.session;
+  if (env[SESSION_ENV]) return env[SESSION_ENV];
+  if (parsed.command === ATTACH_COMMAND && parsed.operands[0]) return parsed.operands[0];
+  return null;
 }
 
 /**
@@ -226,20 +281,26 @@ export function browserOutputDir(session, tmpDir = os.tmpdir()) {
 }
 
 /**
- * Apply the shim's three guards to an invocation:
- *  1. A named session is required (option or PLAYWRIGHT_CLI_SESSION), except
- *     for help/version, no command, and commands that span sessions.
- *     Naming the shared session explicitly (`-s=default`) is the opt-in.
+ * Apply the shim's guards and defaults to an invocation:
+ *  1. A named session is required (option, PLAYWRIGHT_CLI_SESSION, or the
+ *     bound browser name of `attach <name>`), except for help/version, no
+ *     command, and commands that span sessions. Naming the shared session
+ *     explicitly (`-s=default`) is the opt-in.
  *  2. PLAYWRIGHT_MCP_OUTPUT_DIR defaults to browserOutputDir(session); a
  *     value the caller set is kept.
- *  3. close-all / kill-all need --force, which is stripped before forwarding.
+ *  3. PLAYWRIGHT_MCP_FILE_PATHS defaults to "absolute", so file references
+ *     in the output are absolute paths; a value the caller set is kept.
+ *  4. close-all / kill-all need --force, which is stripped before forwarding.
+ *
+ * `rewriteHelp` is true when the CLI will print its global help, whose
+ * `Agent skill:` line the shim makes absolute (absolutizeHelpOutput()).
  * @param {{ argv: string[], env?: NodeJS.ProcessEnv, tmpDir?: string }} opts
- * @returns {{ ok: true, args: string[], env: NodeJS.ProcessEnv, outputDir: string }
+ * @returns {{ ok: true, args: string[], env: NodeJS.ProcessEnv, outputDir: string, rewriteHelp: boolean }
  *         | { ok: false, message: string }}
  */
 export function prepareBrowserInvocation({ argv, env = process.env, tmpDir = os.tmpdir() }) {
   const parsed  = parseBrowserArgs(argv);
-  const session = parsed.session || env[SESSION_ENV] || null;
+  const session = resolveBrowserSession(parsed, env);
   const exempt  = parsed.help || parsed.version || parsed.command === null
     || SESSIONLESS_COMMANDS.includes(parsed.command);
 
@@ -257,7 +318,47 @@ export function prepareBrowserInvocation({ argv, env = process.env, tmpDir = os.
   }
 
   const outputDir = env[OUTPUT_DIR_ENV] || browserOutputDir(session || SHARED_SESSION_NAME, tmpDir);
-  return { ok: true, args, env: { ...env, [OUTPUT_DIR_ENV]: outputDir }, outputDir };
+  const filePaths = env[FILE_PATHS_ENV] || 'absolute';
+  const rewriteHelp = !parsed.version && (parsed.help || parsed.command === null);
+  return {
+    ok: true,
+    args,
+    env: { ...env, [OUTPUT_DIR_ENV]: outputDir, [FILE_PATHS_ENV]: filePaths },
+    outputDir,
+    rewriteHelp,
+  };
+}
+
+/**
+ * Make the `Agent skill: <path>` line of the CLI's global help absolute.
+ * The Playwright CLI prints it (only when CLAUDECODE or COPILOT_CLI is set)
+ * relative to the caller's cwd, outside the file-paths setting. Handles the
+ * plain text help and the `--json` form (`{ "help": "..." }`, re-emitted in
+ * Playwright's own 2-space format). Anything else is returned unchanged.
+ * @param {string} output  Captured stdout of a help invocation
+ * @param {string} [cwd]   Directory the CLI resolved the path against
+ * @returns {string}
+ */
+export function absolutizeHelpOutput(output, cwd = process.cwd()) {
+  const rewrite = (text) => text.replace(
+    /^(Agent skill: )(.+?)(\r?)$/m,
+    (_, label, file, cr) => `${label}${path.resolve(cwd, file)}${cr}`,
+  );
+
+  const trimmed = output.trim();
+  if (trimmed.startsWith('{')) {
+    try {
+      const value = JSON.parse(trimmed);
+      if (value && typeof value.help === 'string') {
+        const help = rewrite(value.help);
+        if (help === value.help) return output;
+        const eol = output.endsWith('\r\n') ? '\r\n' : '\n';
+        return JSON.stringify({ ...value, help }, null, 2) + eol;
+      }
+    } catch { /* not JSON — fall through to the text form */ }
+    return output;
+  }
+  return rewrite(output);
 }
 
 function sessionMessage() {
