@@ -11,6 +11,7 @@ import * as knowledgeTools from './knowledge.js';
 import * as repositoryContextTools from './repository-context.js';
 import * as standaloneImportTools from './standalone-import.js';
 import * as errorCodesTools from './error-codes.js';
+import * as taskTools from './tasks.js';
 
 /**
  * The single, derived source of truth for "which tool modules does this
@@ -50,6 +51,7 @@ export const TOOL_MODULES: readonly ToolModuleEntry[] = [
   { id: 'repository-context', register: repositoryContextTools.register },
   { id: 'standalone-import', register: standaloneImportTools.register },
   { id: 'error-codes', register: errorCodesTools.register },
+  { id: 'tasks', register: taskTools.register },
 ];
 
 /**

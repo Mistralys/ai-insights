@@ -927,6 +927,62 @@ Permanently removes an insight from the knowledge base. Returns a confirmation o
 
 ---
 
+### Task Tools — `src/tools/tasks.ts`
+
+Six tools over `src/storage/task-collection.ts` (see Task Management Schema). Registered through `TOOL_MODULES` as `{ id: 'tasks', register }`; exports `register(server)` and `_internal`. Tasks are not tied to repositories, so these tools take no `project_path` / `cwd_path`. `store_id` is the documented exception to *Multi-Store Routing Requires No New Tool Parameters* (constraints-storage.md). `color`, `colors`, `tags` and `store_id` are plain string inputs validated in the handler, so an invalid value yields an `isError: true` response naming the valid values instead of an SDK protocol error. Every returned task is a `TaskView` (carries `color`, `store_id`, `store_label`, `ticket_label`, `ticket_url`).
+
+```typescript
+// ledger_add_task
+(args: {
+  text: string;                  // non-empty first line (the title); up to 20000 chars
+  store_id?: string;             // default: the default store; unknown id -> isError listing valid ids
+  tags?: string[];               // up to 20; normalised
+  reference?: string | null;     // "1234" or "ABC-1234"
+  color?: string;                // palette id from TASK_COLOR_IDS
+}) => Promise<MCPResult>         // the created TaskView
+
+// ledger_get_task
+(args: { id: string }) => Promise<MCPResult>   // TaskView; unknown id -> isError
+
+// ledger_list_tasks
+(args: {
+  store_id?: string;             // default: all stores
+  status?: 'open' | 'completed' | 'all';        // default 'open'
+  tags?: string[];               // AND
+  colors?: string[];             // palette ids and/or 'none' (tasks without a colour); OR
+  reference?: string;
+  sort?: 'priority' | 'created' | 'completed';  // default 'priority'
+  limit?: number | string;       // string-encoded integers accepted
+  offset?: number | string;
+}) => Promise<MCPResult>
+
+// ledger_search_tasks — same as list, plus a required query, and NO `colors` parameter
+(args: { query: string; store_id?; status?; tags?; reference?; sort?; limit?; offset? }) => Promise<MCPResult>
+
+// ledger_update_task
+(args: {
+  id: string;
+  text?: string;
+  tags?: string[];               // replaces the full list
+  reference?: string | null;     // null clears
+  color?: string;                // palette id; '' clears
+  priority?: number | string;    // replaces the priority (integer; higher sorts first)
+  completed?: boolean;           // true completes (sets completed_at); false reopens (clears completed_at and completion_source)
+  completion_source?: string | null;  // max 200 chars; only valid on a task that is or becomes completed; null clears
+}) => Promise<MCPResult>         // the updated TaskView
+
+// ledger_delete_task
+(args: { id: string }) => Promise<MCPResult>   // { id, deleted: true }
+```
+
+- **List/search response:** pretty-printed JSON `{ total, offset, count, tasks, store_errors? }`. `total` is the match count before pagination; `store_errors` is present only when a store was skipped as unreadable.
+- **Search semantics:** `query` is OR-ranked substring matching over text, ticket label and tags (see constraints-storage.md, Task Search Is OR-Ranked Substring Matching); an empty query behaves like a list. `status` defaults to `open`.
+- **Colour:** the `color` and `colors` parameter descriptions list all palette ids, built from `TASK_COLOR_IDS`. `''` on update clears the colour; `'none'` is a list filter value only. Any other value is rejected with `isError: true`.
+- **Bulk reordering is not a tool:** reordering many tasks is a GUI concern (`reorderTasks`); the tools only replace one task's `priority` via `ledger_update_task`.
+- **Help:** each tool has a `# ledger_*_task` entry and an overview row in `TOOL_HELP`.
+
+---
+
 ## GUI API — Knowledge Endpoints
 
 These handler functions are exported from `gui/api-knowledge.ts` (extracted from `gui/api.ts` in WP-003) and called by the HTTP server in `gui/server.ts`. They sit between the HTTP request and the `KnowledgeStoreManager` storage layer.
@@ -3638,6 +3694,195 @@ type KnowledgeStore = z.infer<typeof KnowledgeStoreSchema>;
 
 ---
 
+## Task Management Schema
+
+### `src/schema/task.ts` — Task schemas, colour palette, tags and sorting
+
+Zod schemas and helpers for the task collection. Storage schemas are permissive (tolerant reader); input schemas are strict.
+
+```typescript
+// Palette ids, in this exact order (unique). Colour is stored as an id, never as hex or index.
+const TASK_COLOR_IDS: readonly [
+  'red', 'orange', 'amber', 'yellow', 'lime', 'green', 'teal', 'cyan',
+  'blue', 'indigo', 'violet', 'fuchsia', 'pink', 'brown', 'slate', 'gray',
+];
+type TaskColorId = (typeof TASK_COLOR_IDS)[number];
+
+// Strict input: a palette id or '' (no colour). null, hex values, 'Red' and unknown ids are
+// rejected with a message listing the valid ids.
+const TaskColorInput: z.ZodEnum<[...TaskColorId[], '']>;
+
+// Strict filter input: 1–17 entries (palette ids or 'none'), deduplicated; entries combine as OR.
+const TaskColorFilterInput: z.ZodEffects<z.ZodArray<z.ZodEnum<[...TaskColorId[], 'none']>>>;
+
+// Colour key used for filtering: the id when it is in the palette, otherwise 'none'
+// (covers '', a missing field and ids no longer in the palette).
+function colorKey(task: { color?: string | null }): TaskColorId | 'none';
+
+// Tags
+const TAG_PATTERN: RegExp; // /^[a-z0-9][a-z0-9-]{0,31}$/
+function normaliseTag(raw: string): string | null; // lowercase, whitespace runs -> '-', commas removed; null when invalid
+const TaskTagsInput: z.ZodEffects<...>; // normalises each tag, max 20, deduplicated
+
+// Text and reference
+const TASK_TEXT_MAX_LENGTH = 20_000;
+const TaskTextInput: z.ZodEffects<...>; // trailing whitespace trimmed; rejects empty, empty first line, > 20 000 chars
+const TaskReferenceInput: z.ZodNullable<z.ZodString>; // string up to 64 chars, or null; normalised by ticket-reference.ts
+
+// Storage schemas (permissive: `color` accepts any string up to 32 chars on read)
+const TaskSchema: z.ZodObject<{
+  id: z.ZodString;                // UUID
+  reference: ...;                 // nullable, optional, max 64
+  text: z.ZodString;
+  tags: z.ZodArray<z.ZodString>;
+  priority: z.ZodNumber;          // integer
+  completed: z.ZodBoolean;
+  created_at: z.ZodString;
+  completed_at: ...;              // nullable, optional
+  completion_source: ...;         // nullable, optional, max 200
+  color: ...;                     // optional
+  updated_at: ...;                // optional
+}>;
+const TaskFileSchema: z.ZodObject<{ version: z.ZodLiteral<1>; last_updated: z.ZodString; tasks: z.ZodArray<typeof TaskSchema> }>;
+type Task = z.infer<typeof TaskSchema>;
+type TaskFile = z.infer<typeof TaskFileSchema>;
+
+// Task as returned to consumers: tagged with its store and server-computed ticket link
+type TaskView = Task & {
+  color: string; store_id: string; store_label: string;
+  ticket_label: string; ticket_url: string | null;
+};
+
+// Filters and sorting
+const TaskStatusFilter: z.ZodEnum<['open', 'completed', 'all']>;
+const TaskSort: z.ZodEnum<['priority', 'created', 'completed']>;
+function compareTasks(sort: TaskSort): (a, b) => number;
+//   'priority'  — priority desc, created_at desc, id asc
+//   'created'   — created_at desc, id asc
+//   'completed' — completed_at desc, open tasks last, ties by priority desc
+```
+
+**Design notes:**
+- Colour is stored as a palette id so a theme re-tune needs no data migration; reads stay permissive so an id dropped from the palette never invalidates a file (it is treated as `'none'` by `colorKey`).
+- `''` is the single "no colour" representation; `null` is deliberately rejected.
+- `normaliseTag` returns `null` on invalid input; `TaskTagsInput` converts that into a Zod issue.
+
+### `src/storage/task-store.ts` — Per-store task file layer
+
+Plain functions over `{storePath}/.tasks/tasks.json`. Lock scope is `{storePath}/.tasks`.
+
+```typescript
+type TaskFileRead =
+  | { status: 'ok'; file: TaskFile }
+  | { status: 'invalid'; path: string; message: string };
+
+class TaskFileInvalidError extends Error { readonly path: string; }
+
+function taskDir(storePath: string): string;      // {storePath}/.tasks
+function taskFilePath(storePath: string): string; // {storePath}/.tasks/tasks.json
+function readTaskFile(storePath: string): Promise<TaskFileRead>;
+function mutateTaskFile<T>(storePath: string, fn: (file: TaskFile) => T | Promise<T>): Promise<T>;
+```
+
+- `readTaskFile` takes no lock. A missing file returns `ok` with an empty file; unparsable JSON or a schema violation returns `invalid`; other I/O errors are rethrown.
+- `mutateTaskFile` runs read, `fn`, `last_updated` stamp, `TaskFileSchema` validation and `atomicWriteJson()` inside one `withLock(taskDir(storePath))`; `fn` edits the file in place and its return value is passed through. If the existing file is `invalid` it throws `TaskFileInvalidError` and writes nothing; a throwing `fn` or a schema-invalid result also writes nothing.
+- Fallback contract: an unreadable task file is reported, never overwritten (see constraints-storage.md, Task Store Constraints).
+
+### `src/utils/ticket-reference.ts` — Ticket reference rules
+
+Pure functions, no I/O. A reference is a bare number (`4578`, shown with the configured queue) or a full `QUEUE-number` (`ABC-12`). Computed server-side so every `TaskView` carries `ticket_label` and `ticket_url`.
+
+```typescript
+type NormaliseReferenceResult = { ok: true; value: string | null } | { ok: false; message: string };
+const REFERENCE_ERROR_MESSAGE: string; // 'Reference must be a number (4578) or QUEUE-number (ABC-12).'
+
+// Empty -> null; digits kept; QUEUE-digits uppercased, and reduced to the number alone when the
+// queue equals the configured queue (case-insensitive, non-empty queue). Anything else is an error.
+function normaliseReference(raw: string, queue: string): NormaliseReferenceResult;
+
+// Numeric refs: queue + '-' + ref (ref alone when queue is empty); other refs as stored; '' for none.
+// A trailing '-' on the configured queue is ignored ('ABC-' equals 'ABC').
+function ticketLabel(ref: string | null | undefined, queue: string): string;
+
+// True only for a valid absolute http: or https: URL (javascript:, ftp: etc. are rejected).
+function isSafeTicketBaseUrl(url: string): boolean;
+
+// null when the label is empty or the base URL is not safe; otherwise ticket_base_url + label.
+function ticketUrl(
+  ref: string | null | undefined,
+  settings: { ticket_base_url: string; ticket_queue: string },
+): string | null;
+```
+
+**Design notes:**
+- `ticketUrl` concatenates `ticket_base_url` and the label directly, with no separator handling. The base URL must therefore end with its separator (for example `https://tracker.example.com/browse/`).
+- `ticketUrl` does not re-validate a stored reference; consumers (GUI) must escape task text and only use `http(s)` hrefs.
+
+### `src/storage/task-collection.ts` — Cross-store task collection
+
+The single shared layer that iterates stores for tasks; both the MCP tools and the GUI API call it. File access goes through `task-store.ts`; the store of a task is derived from its location and never persisted.
+
+```typescript
+export { TaskFileInvalidError }; // re-exported from task-store.ts
+
+class TaskNotFoundError extends Error { readonly taskId: string; }
+class TaskStoreNotFoundError extends Error { readonly storeId: string; readonly validIds: string[]; } // message lists the valid ids
+class TaskValidationError extends Error {}  // bad text, tags, reference, colour, priority or completion_source
+
+interface TaskStore { id: string; path: string; label: string }
+interface TaskStoreError { store_id: string; store_label: string; path: string; message: string }
+interface LoadedTasks { tasks: TaskView[]; store_errors: TaskStoreError[] }
+
+interface TaskFilter {
+  status?: TaskStatusFilter;
+  tags?: string[];     // AND, exact match
+  colors?: string[];   // OR via colorKey(); 'none' = no (or unknown) colour; absent/empty matches everything
+  store?: string;
+  reference?: string;  // must already be normalised when passed to matchesFilters
+}
+type TaskSearchFilter = Omit<TaskFilter, 'colors'>;
+interface TaskListOptions { sort?: TaskSort; limit?: number; offset?: number }
+interface TaskPage extends LoadedTasks { total: number } // total = matches before pagination
+
+interface CreateTaskInput { text: string; store?: string; tags?: string[]; reference?: string | null; color?: string }
+interface UpdateTaskInput {
+  text?: string; tags?: string[];
+  reference?: string | null;   // string is re-normalised; null clears
+  color?: string;              // '' clears
+  priority?: number;           // integer
+  completed?: boolean;
+  completion_source?: string | null;
+}
+interface ReorderAssignment { id: string; priority: number }
+interface ReorderFailure { store_id: string; ids: string[]; message: string }
+interface ReorderResult { updated: string[]; failed: ReorderFailure[] }
+
+function resolveTaskStores(): TaskStore[];       // router stores when the store context is initialised, else one legacy { id: 'default', label: 'Default Store', path: ledger root }
+function resolveDefaultTaskStore(): TaskStore;   // same legacy fallback
+function loadAllTasks(): Promise<LoadedTasks>;
+function matchesFilters(task: Pick<TaskView, 'completed' | 'tags' | 'color' | 'store_id' | 'reference'>, filter: TaskFilter): boolean;
+function listTasks(filter?: TaskFilter, options?: TaskListOptions): Promise<TaskPage>;
+function searchTasks(query: string, filter?: TaskSearchFilter, options?: TaskListOptions): Promise<TaskPage>;
+function getTask(id: string): Promise<TaskView>;
+function createTask(input: CreateTaskInput): Promise<TaskView>;
+function updateTask(id: string, patch: UpdateTaskInput): Promise<TaskView>;
+function deleteTask(id: string): Promise<void>;
+function reorderTasks(assignments: ReorderAssignment[]): Promise<ReorderResult>;
+```
+
+**Behaviour:**
+- `loadAllTasks` tags every task with `store_id`, `store_label`, `ticket_label` and `ticket_url`. Unreadable stores are skipped and reported in `store_errors`; on a duplicated id the first store wins.
+- `matchesFilters` is exported so the GUI client filter can be tested for parity against it. It expects an already-normalised `reference`; `listTasks` and `searchTasks` normalise a supplied `reference` against the configured queue first (an invalid one throws `TaskValidationError`, an empty one is dropped).
+- `listTasks` applies the filter, then `compareTasks(options.sort ?? 'priority')`, then pagination.
+- `searchTasks` ranks by OR match count of lowercased whitespace tokens, matched as substrings over text, `ticket_label` and tags, then by the sort. An empty query behaves as `listTasks`.
+- `createTask` assigns a UUID v4, `created_at`, `completed: false`, `color` (input or `''`) and priority = max over all readable stores + 1 (1 when empty). An unknown `store` throws `TaskStoreNotFoundError`; no `store` uses `resolveDefaultTaskStore()`.
+- `updateTask` completes (sets `completed_at`) or reopens (clears `completed_at` and `completion_source`), always sets `updated_at`, and stores `completion_source` only for a task that is or becomes completed; supplying it for a task that stays open throws `TaskValidationError`.
+- `deleteTask` removes the task from its owning store under that store's lock.
+- `reorderTasks` validates all ids up front, then applies one `mutateTaskFile` call per owning store, sequentially, never holding two locks. A store that fails at write time appears in `failed[]` while the others are still applied. A store unreadable at load time is invisible, so its ids throw `TaskNotFoundError`. See constraints-storage.md, Task Store Constraints.
+- `getTask`, `updateTask`, `deleteTask` and `reorderTasks` throw `TaskNotFoundError` for an unknown id; the four error classes are distinguishable with `instanceof`.
+
+---
+
 ## Constants
 
 Exported from `src/utils/constants.ts`. Single source of truth for shared string constants and derived types used across the codebase. Role and status constants are **derived at module-load time from `shared/workflow-manifest.json`** via the Zod-validated `workflowManifest` singleton in `src/schema/workflow-manifest-schema.ts` — no inline literal arrays remain for spec-defined constructs.
@@ -4866,9 +5111,21 @@ export type GuiConfig = {
   max_handoff_depth: number;      // Maximum auto-handoff chain depth (default 50)
   ledger_root: string;            // Resolved ledger root path (display-only in GUI)
   auto_archive_days: number;      // Days after COMPLETE before auto-archiving (0 = disabled; default 6)
+  tasks_ticket_base_url: string;  // '' (default) or an absolute http(s) URL (validated with isSafeTicketBaseUrl)
+  tasks_ticket_queue: string;     // '' (default) or /^([A-Za-z][A-Za-z0-9_]*-?)?$/, max 32 chars
+  tasks_page_size: number;        // Integer 5-200, default 20
 };
 
-export const DEFAULT_CONFIG: GuiConfig;  // { auto_handoff_enabled: true, max_handoff_depth: 50, ledger_root: '', auto_archive_days: 6 }
+// Derived from the schema: GuiConfigSchema.parse({}). Not a hand-written literal, so new keys need no second edit.
+export const DEFAULT_CONFIG: GuiConfig;
+
+// Task display/normalisation settings, mapped from the three tasks_* keys. The only accessor for them.
+export interface TaskSettings {
+  ticket_base_url: string;  // tasks_ticket_base_url
+  ticket_queue: string;     // tasks_ticket_queue
+  page_size: number;        // tasks_page_size
+}
+export function getTaskSettings(): TaskSettings;  // Synchronous; reads the in-memory cache only
 
 // Returns the current in-memory config. Never reads disk. Synchronous.
 export function getConfig(): GuiConfig;

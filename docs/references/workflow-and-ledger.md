@@ -122,6 +122,12 @@ Additionally, the **Developer**, **QA**, **Security Auditor**, and **Reviewer** 
 
 The knowledge store is designed to compound value over time. Each completed project makes the next project better, because the Planner starts with a richer understanding of what has worked and what has not.
 
+### Task Store
+
+Tasks are stored per store, next to the projects, in `{store}/.tasks/tasks.json` (`{ version: 1, last_updated, tasks[] }`). The directory has its own lock scope, separate from the store root and from `.knowledge/`, and project enumeration skips it like any other dot-directory.
+
+Stores are user-synced, often with Git, so a merge conflict can leave markers in the JSON. An unreadable task file is reported and never overwritten: reads flag the file as invalid, and writes fail with an error naming the path until the user repairs it. A missing file simply means no tasks yet.
+
 ### Strategy and Project History
 
 Beyond knowledge insights, the Planner also reads the project history through `ledger_get_repository_context`. This returns:
@@ -346,6 +352,8 @@ Insights are written at two scopes:
 
 When a project completes, the Synthesis agent dispatches the **Ledger Knowledge Archiver** sub-agent, which does the actual extraction and deduplication. New insights are compared against existing ones before writing to avoid redundancy.
 
+After the Knowledge Archiver, Synthesis dispatches the **Ledger Task Curator** (workflow step 9, before Complete Synthesis). The Task Curator reads `synthesis.md` and closes tasks in the [task store](#task-store) that the finished project fully shipped, leaving the rest open. Synthesis passes only the workspace path and the project storage path, and never edits tasks itself; if the dispatch cannot run (nested depth limit), it leaves a project comment and a Next Steps item in `synthesis.md` for a manual run.
+
 ---
 
 ## Supporting Infrastructure
@@ -387,6 +395,7 @@ Several support personas manage the workflow infrastructure rather than contribu
 | **Ledger Pipeline Configurator** | Selects which pipeline stages apply to each WP |
 | **Ledger Doctor** | Diagnoses and repairs stuck, deadlocked, or corrupted ledger projects |
 | **Ledger Knowledge Archiver** | Extracts and commits insights from completed projects into the knowledge store |
+| **Ledger Task Curator** | Closes tasks a completed plan has shipped (dispatched by Synthesis, re-run by the Claude Coordinator when Synthesis did not run it, and dispatched by the Standalone Developer after archival), and finds, updates, completes, reprioritises, recolours or deletes tasks on request |
 | **Ledger Knowledge Curator** | Audits knowledge store entries for quality and removes outdated insights |
 | **Ledger Synthesis Maintainer** | Archives a completed standalone plan folder into the ledger, and refreshes the ledger record of any completed project whose synthesis.md was edited |
 | **Ledger Orchestrator Runner** | Pre-flight checks, launch, and monitoring for Orchestrator runs |

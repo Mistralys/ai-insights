@@ -514,8 +514,10 @@ npm run sync-version
 
 ### Runtime Config Is Read From an In-Memory Cache
 
-**Rule:** `gui-config.json` is the single source of truth for runtime-adjustable settings (`auto_handoff_enabled`, `max_handoff_depth`). The following apply:
+**Rule:** `gui-config.json` is the single source of truth for runtime-adjustable settings (`auto_handoff_enabled`, `max_handoff_depth`, and the task settings `tasks_ticket_base_url`, `tasks_ticket_queue`, `tasks_page_size`). The following apply:
 
+- The `tasks_*` keys are flat (not a nested object) because `writeConfig()` merges shallowly. Read them only through `getTaskSettings()`, never by accessing the keys directly.
+- `DEFAULT_CONFIG` is derived from the schema (`GuiConfigSchema.parse({})`). Declare a new key's default once, in `GuiConfigSchema`; do not maintain a separate literal.
 - The MCP server (`index.ts`) and GUI server (`gui/server.ts`) **both** must call `readConfigFromDisk()` at startup and `startConfigWatcher()` to begin monitoring.
 - `getConfig()` **MUST NOT** read from disk — it returns from the in-memory singleton cache only.
 - The `FSWatcher` must be closed via `stopConfigWatcher()` during graceful shutdown and in test teardown.

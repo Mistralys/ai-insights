@@ -188,6 +188,12 @@ To change priority:
 
 ---
 
+## Tasks Across Stores
+
+Tasks are stored per store, in `{store}/.tasks/tasks.json`, and the GUI Tasks tab merges every store's tasks into one list. A task belongs to the store whose file holds it, so choose the store when you create the task: pass `store_id` to `ledger_add_task` (also accepted by `ledger_list_tasks` and `ledger_search_tasks`), or pick the store in the GUI create form. With a single store configured, no choice is needed. Reordering tasks in the merged list rewrites priorities in each affected store's file.
+
+---
+
 ## Orchestrator Integration
 
 The orchestrator automatically resolves which store to use for each repository. At launch, it reads `~/.ai-insights/stores.json` and each store's `.repositories.json` to determine the owning store for the current workspace. Log files and slug directories are written to the correct store — no manual configuration is needed.

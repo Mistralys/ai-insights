@@ -27,10 +27,13 @@ mcp-server/
 │       │   └── {slug}/              # Each repo manages its own slug namespace independently
 │       │       └── …
 │       ├── unknown/             # Fallback namespace — used when repo-root name fails slug validation
-│       └── .knowledge/          # Knowledge store — lives at {ledgerRoot}/.knowledge/; excluded from project enumeration (dot-prefix filter)
+│       ├── .knowledge/          # Knowledge store — lives at {ledgerRoot}/.knowledge/; excluded from project enumeration (dot-prefix filter)
 │           ├── .lock                              # Lock file for all knowledge write operations
 │           ├── global-insights.json               # Insights with scope: 'global' (cross-repository knowledge)
 │           └── {repo-name}-insights.json          # Insights scoped to a specific repository (scope: 'repository')
+│       └── .tasks/              # Task store — lives at {storePath}/.tasks/; own lock scope; excluded from project enumeration (dot-prefix filter)
+│           ├── .lock                              # Lock file for all task write operations
+│           └── tasks.json                         # Per-store task file { version: 1, last_updated, tasks[] }; an unreadable file is reported and never overwritten
 │
 ├── scripts/                     # Node.js utility scripts (run directly with `node`)
 │   ├── sync-version.js          # Syncs version from changelog.md → package.json
@@ -132,6 +135,8 @@ mcp-server/
 │   ├── storage/                 # File I/O abstractions
 │   │   ├── json-state-file.ts   # readJsonStateFile (missing / parsed / unparsable; other I/O errors rethrown) and keepCorruptCopy (byte-identical `.corrupt-{stamp}` copy, never renames) — shared read primitive of the error-code state files
 │   │   ├── atomic-writer.ts     # Atomic write-to-temp-then-rename
+│   │   ├── task-store.ts        # Per-store task file layer over {storePath}/.tasks/tasks.json: taskDir, taskFilePath, readTaskFile (ok | invalid; missing file = empty), mutateTaskFile (locked read-modify-write; throws TaskFileInvalidError on an unreadable file), TaskFileInvalidError; uses TaskFileSchema from schema/task.ts
+│   │   ├── task-collection.ts   # Cross-store task collection shared by MCP tools and GUI API: resolveTaskStores, resolveDefaultTaskStore, loadAllTasks, matchesFilters, listTasks, searchTasks, getTask, createTask, updateTask, deleteTask, reorderTasks; typed errors TaskNotFoundError, TaskStoreNotFoundError, TaskValidationError (re-exports TaskFileInvalidError)
 │   │   ├── file-lock.ts         # File locking with proper-lockfile; withLock(storageDir, fn); DEFAULT_LOCK_OPTIONS (frozen) + module-level activeLockOptions; __setLockRetryForTesting()/__resetLockOptionsForTesting() — @internal test-only retry-policy seam (see constraints-testing.md)
 │   │   ├── knowledge-store.ts   # KnowledgeStoreManager — all CRUD/query operations for the .knowledge/ store: addInsight, searchInsights, listInsights, updateInsight, deleteInsight, moveInsight; atomic cross-store move via single withLock(knowledgeDir()) span (WP-002); reads are lock-free (WP-001/002)
 │   │   ├── ledger-store.ts      # Central storage abstraction; exports: ImportStandaloneDetail interface (parameter type for importStandaloneProject), SlugConflictError; static methods: listAllProjects() (two-level namespace scan), detectProjectByCwd(), listProjectsByFolderNames(folderNames, ledgerRoot?) — targeted O(folders×projects) scan used by repository-context.ts; instance methods: read/write root index, WP detail, project meta, archiving, atomic sync helpers; importStandaloneProject(detail) — bootstraps a full COMPLETE standalone project record (root index + WP-001 detail + .meta.json sync + document archival) within a single lock scope
@@ -149,6 +154,7 @@ mcp-server/
 │   │   ├── error-codes.ts       # ledger_generate_error_code, ledger_list_temporary_error_codes — wires error-codes/allocator.ts and error-codes/temporary-codes.ts with real deps (live provider registry, loadErrorCodeConfig, resolveRepositoryInfo, a real setTimeout sleep, Date.now); user-level (~/.ai-insights/error-codes/), not ledger-project-scoped — accepts no project_path; exports _internal and register() (WP-010)
 │   │   ├── registry.ts          # TOOL_MODULES (every tool module's { id, register } entry) and registerAllTools(server) — the single derived source of truth for tool registration, replacing three previously hand-maintained lists (index.ts's registration calls + startup log, and schema-integrity.test.ts's import list); registerAllTools captures registered tool names by temporarily wrapping server.registerTool for the call's duration, since McpServer exposes no public API to list registered tools afterward
 │   │   ├── knowledge.ts         # ledger_add_insight, ledger_search_insights, ledger_list_insights, ledger_update_insight, ledger_delete_insight — knowledge accumulation tools; IDs are UUID v4 strings generated via crypto.randomUUID(); in multi-store mode, search/list iterate stores directly to capture owning storeId per insight (WP-001/003)
+│   │   ├── tasks.ts             # ledger_add_task, ledger_get_task, ledger_list_tasks, ledger_search_tasks, ledger_update_task, ledger_delete_task — thin wrappers over storage/task-collection.ts; optional store_id on add/list/search; colour and store validated in the handler (isError); exports _internal and register()
 │   │   ├── observations.ts      # ledger_add_observation, ledger_add_project_comment
 │   │   ├── pipeline.ts          # ledger_start_pipeline, ledger_complete_pipeline, ledger_cancel_pipeline, ledger_update_pipeline_progress
 │   │   ├── project-lifecycle.ts # ledger_detect_project, ledger_get_project_status, ledger_initialize_project, ledger_list_projects, ledger_complete_synthesis
@@ -301,6 +307,8 @@ mcp-server/
     │   ├── enrichment-resilience.test.ts
     │   ├── error-codes.test.ts      # Tests for ledger_generate_error_code and ledger_list_temporary_error_codes: final-code and temporary-code (requested/misconfigured/provider-failure) paths, cwd_path passthrough to repository resolution, MCP error only on temporary-code-store failure, secret redaction, and tool registration (WP-010)
     │   ├── knowledge-help.test.ts   # Tests for ledger_list_insights help/diagnostic tool
+    │   ├── tasks.test.ts            # Tests for the six ledger_*_task tools in tools/tasks.ts
+    │   ├── tasks-help.test.ts       # Tests that every task tool has a TOOL_HELP entry and an overview row
     │   ├── knowledge.test.ts        # Tests for ledger_add_insight, ledger_search_insights, ledger_update_insight tools
     │   ├── knowledge-multi-store.test.ts  # 10 integration tests for multi-store knowledge routing (cross-device ledger sync plan, WP-009): addInsight global scope writes to default store (AC2), addInsight repository scope routes to claiming store (AC1), unregistered repo error (AC1), searchInsights cross-store merge with dedup (AC3), listInsights cross-store merge (AC4), updateInsight and deleteInsight iterate stores to locate insight (AC5)
     │   ├── list-projects.test.ts

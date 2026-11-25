@@ -2398,3 +2398,74 @@ return ErrorCodeResult { temporary: true, fallback_reason: reason, detail, repos
 - `deps.now()` only measures the actual elapsed time around the one retry `sleep()` for the reported `waited_ms` — it is never consulted to decide whether to retry.
 - The only way this function rejects (rather than returning a temporary-code `ErrorCodeResult`) is a failure inside `deps.temporaryCodes.issue` itself (the temporary-code counter exhausted, an unreadable log, a lock timeout), which the calling MCP tool turns into an MCP error. A *corrupt but readable* log does not reject: it is recovered and reported through `ErrorCodeResult.warning`. A corrupt `file`-provider counter file is a provider `failed` outcome, so it takes the ordinary fallback path with the counter-file detail.
 - Plugins are picked up only at the next call to `initProviderRegistry` — normally, that means only at the next process restart. There is no file watcher and no hot-reload endpoint.
+
+
+---
+
+## Flow U: Task Create, Update & Reorder (Cross-Store)
+
+**Entry point:** `createTask()`, `updateTask()`, `reorderTasks()` in `mcp-server/src/storage/task-collection.ts`, called by the task MCP tools and the GUI task API. Each reads through `loadAllTasks()` (every store's `.tasks/tasks.json`, read without a lock) and writes through `mutateTaskFile()` (one `withLock` on `{storePath}/.tasks`).
+
+```
+createTask(input)
+  ↓
+  store = input.store ? findStore(input.store)   ← unknown id → TaskStoreNotFoundError (lists valid ids)
+                      : resolveDefaultTaskStore()
+  validate text, tags, colour, reference          ← failure → TaskValidationError (before any I/O write)
+  loadAllTasks()                                  ← separate, unlocked read across all readable stores
+  priority = max(priority) + 1  (1 when empty)
+  mutateTaskFile(store.path, file => file.tasks.push(task))   ← id = UUID v4, created_at = now(), completed = false
+  return TaskView (store_id / ticket fields computed, not stored)
+
+updateTask(id, patch)
+  ↓
+  validate text, tags, colour, reference (string re-normalised; null clears), integer priority
+  getTask(id) → owning store                      ← unknown → TaskNotFoundError
+  mutateTaskFile(owning store, file => {
+    find task (missing → TaskNotFoundError)
+    completion_source supplied while task stays open → TaskValidationError (nothing written)
+    apply fields; completing sets completed_at; reopening clears completed_at + completion_source
+    updated_at = now()
+  })
+
+reorderTasks(assignments)
+  ↓
+  loadAllTasks() → owner map (id → store_id)
+  any id missing from the map → TaskNotFoundError; non-integer priority → TaskValidationError  ← nothing applied
+  group assignments by owning store
+  for each store group, sequentially (one lock at a time, never nested):
+    mutateTaskFile(store.path, set priority + updated_at for the group)
+      OK    → ids appended to updated[]
+      error → { store_id, ids, message } appended to failed[]; remaining stores still processed
+  return { updated, failed }
+```
+
+**Key invariants:**
+- A store unreadable at load time is absent from the collection, so ids that live in it fail the up-front check with `TaskNotFoundError`; `failed[]` only reports stores that fail at write time.
+- `reorderTasks` is the single multi-store write in the system and the documented exception to read-only collation; it stays safe because priority is an integer with a deterministic `compareTasks` tie-breaker, so a partly applied reorder still sorts predictably.
+- `createTask` takes its `max + 1` priority from a read outside the write lock, so concurrent creates in different processes can share a priority; the tie-breaker resolves the order.
+- `store_id`, `store_label`, `ticket_label` and `ticket_url` are computed on read and never written to a task file.
+- MCP entry points: `ledger_add_task` -> `createTask`, `ledger_update_task` -> `updateTask`, `ledger_delete_task` -> `deleteTask` (`src/tools/tasks.ts`). The tools validate `store_id` and colours first and return `isError: true` on any thrown task error; they never call `reorderTasks` (bulk reordering is GUI-only).
+- An unreadable task file is never overwritten: `mutateTaskFile` throws `TaskFileInvalidError` and leaves it untouched (see `constraints-storage.md`, Task Store Constraints).
+
+---
+
+## Flow V: Synthesis -> Task Curator Reconciliation
+
+**Entry point:** Synthesis workflow step 9 (`personas/ledger/src/content/9-synthesis.md`), run after the Knowledge Archiver (step 8) and before `ledger_complete_synthesis` (step 10).
+
+```
+Synthesis (no task-write tools)
+  dispatch ledger-task-curator   ← params: cwd_path, project_storage_path (= plan_path) only
+    Task Curator
+      read synthesis.md from project_storage_path
+      ledger_list_tasks / ledger_search_tasks / ledger_get_task   ← match open tasks to shipped work
+      ledger_update_task (completed)                              ← only tasks the project fully shipped
+      return reconciliation report (closed / left open)
+  Synthesis reviews report → step 10 Complete Synthesis
+```
+
+**Key invariants:**
+- The Task Curator is the only writer in this flow; each close is an ordinary `updateTask` call (see Flow U), so the per-store `.tasks` lock applies.
+- If the dispatch tool is unavailable (nested depth limit) or the call fails, Synthesis calls `ledger_add_project_comment` (naming the Task Curator, the reason and both parameters) and adds a Next Steps item to `synthesis.md`; it continues to step 10 without touching tasks.
+- The step is independent of any Knowledge Curator Targeted Reconciliation dispatch.

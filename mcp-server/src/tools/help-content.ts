@@ -50,6 +50,12 @@ export const TOOL_HELP: Record<string, string> = {
 | ledger_list_insights | None required | List insights with optional filters and pagination |
 | ledger_update_insight | id | Update an existing insight by UUID |
 | ledger_delete_insight | id | Permanently delete an insight by UUID |
+| ledger_add_task | text | Add a task (optional: store_id, tags, reference, color) |
+| ledger_get_task | id | Read one task by UUID |
+| ledger_list_tasks | None required | List tasks (default: open, by priority; optional: store_id, status, tags, colors, reference, sort, limit, offset) |
+| ledger_search_tasks | query | Search tasks by text, ticket label and tags (OR semantics; default: open) |
+| ledger_update_task | id | Update a task: text, tags, reference, color, priority, completed, completion_source |
+| ledger_delete_task | id | Permanently delete a task by UUID |
 | ledger_get_repository_context | cwd_path or repository_name | Return project timeline, outcome summaries, insights, and strategic vision for a repository (for Planner agent history access) |
 | ledger_import_standalone | project_path or cwd_path (plan folder) | Import a completed standalone developer plan execution into the project ledger |
 | ledger_update_synthesis | project_path or cwd_path (plan folder) | Update the outcome summary and archived synthesis.md for a COMPLETE project (any runner) |
@@ -988,6 +994,118 @@ A confirmation object with the deleted **id**, plus \`deleted: true\`.
 \`\`\`json
 { "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "scope": "repository", "repository_name": "my-repo" }
 \`\`\`
+`,
+
+  // --- Tasks ---
+
+  ledger_add_task: `
+# ledger_add_task
+
+Add a task to the task list. Tasks are not tied to repositories: they live in a per-store task file and are merged into one collection.
+
+## Required Parameters
+- **text** (string): Task text. The first line is the title and must not be empty; up to 20000 characters.
+
+## Optional Parameters
+- **store_id** (string): Store to write to. Defaults to the default store. An unknown id returns an error listing the valid ids.
+- **tags** (string[]): Up to 20 tags, normalised to lowercase alphanumerics and hyphens.
+- **reference** (string | null): Ticket reference, e.g. \`"1234"\` or \`"ABC-1234"\`.
+- **color** (string): One of: red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet, fuchsia, pink, brown, slate, gray. \`''\` (empty string) means no colour. Any other value is rejected.
+
+## Response
+The created task (pretty-printed JSON) including \`id\`, \`priority\` (highest existing priority + 1), \`color\`, \`store_id\`, \`store_label\`, \`ticket_label\` and \`ticket_url\`.
+
+## Example
+\`\`\`json
+{ "text": "Fix the login redirect", "tags": ["bug"], "color": "red" }
+\`\`\`
+`,
+
+  ledger_get_task: `
+# ledger_get_task
+
+Read a single task by UUID.
+
+## Required Parameters
+- **id** (string): UUID of the task.
+
+## Response
+The task (pretty-printed JSON), or an error when no readable store holds it.
+`,
+
+  ledger_list_tasks: `
+# ledger_list_tasks
+
+List tasks across all stores. All parameters are optional.
+
+## Optional Parameters
+- **store_id** (string): Restrict to one store. Defaults to all stores. An unknown id returns an error listing the valid ids.
+- **status** ("open" | "completed" | "all"): Defaults to \`open\`.
+- **tags** (string[]): Tasks carrying ALL of these tags (AND).
+- **colors** (string[]): Colour filter with OR semantics. Entries are palette ids (red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet, fuchsia, pink, brown, slate, gray) and/or \`'none'\` to match tasks without a colour. Note: \`''\` means "no colour" when setting a colour on add/update, whereas \`'none'\` is the filter value.
+- **reference** (string): Tasks with this ticket reference.
+- **sort** ("priority" | "created" | "completed"): Defaults to \`priority\` (highest first).
+- **limit**, **offset** (integer): Pagination; string-encoded integers are accepted.
+
+## Response
+\`{ total, offset, count, tasks }\`; \`store_errors\` is included when a store was skipped because its task file was unreadable.
+
+> Bulk reordering of priorities is a GUI concern; there is no reorder tool. Use \`ledger_update_task\` to replace a single task's priority.
+`,
+
+  ledger_search_tasks: `
+# ledger_search_tasks
+
+Search tasks by text, ticket label and tags.
+
+## Required Parameters
+- **query** (string): Space-separated terms. OR semantics: a task matches when any term appears (case-insensitive substring) in its text, ticket label or tags; results are ranked by the number of matched terms, then by \`sort\`. An empty query behaves like a list.
+
+## Optional Parameters
+- **store_id** (string): Restrict to one store. Defaults to all stores. Unknown ids return an error listing the valid ids.
+- **status** ("open" | "completed" | "all"): Defaults to \`open\`.
+- **tags** (string[]), **reference** (string), **sort**, **limit**, **offset**: as for \`ledger_list_tasks\`.
+
+Search has no colour filter; use \`ledger_list_tasks\` with \`colors\` for that.
+
+## Response
+\`{ total, offset, count, tasks }\`, plus \`store_errors\` when a store was skipped.
+`,
+
+  ledger_update_task: `
+# ledger_update_task
+
+Update a task by UUID. Only supplied fields change.
+
+## Required Parameters
+- **id** (string): UUID of the task.
+
+## Optional Parameters
+- **text** (string), **tags** (string[], replaces the full list), **reference** (string | null; null clears).
+- **color** (string): A palette id (red, orange, amber, yellow, lime, green, teal, cyan, blue, indigo, violet, fuchsia, pink, brown, slate, gray), or \`''\` (empty string) to clear the colour. Other values are rejected. (\`'none'\` is a list filter value only.)
+- **priority** (integer): Replaces the priority; higher sorts first.
+- **completed** (boolean): \`true\` completes (sets \`completed_at\`); \`false\` reopens (clears \`completed_at\` and \`completion_source\`).
+- **completion_source** (string | null, max 200 chars): What completed the task (e.g. a plan slug). Stored on completion, \`null\` clears it, and it is rejected on a task that stays open. Reopening clears it.
+
+## Response
+The updated task (pretty-printed JSON).
+
+## Example
+\`\`\`json
+{ "id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890", "completed": true, "completion_source": "2026-11-24-tasks-list" }
+\`\`\`
+`,
+
+  ledger_delete_task: `
+# ledger_delete_task
+
+Permanently delete a task by UUID. This cannot be undone.
+
+## Required Parameters
+- **id** (string): UUID of the task.
+
+## Response
+\`{ "id": "...", "deleted": true }\`
 `,
 
   // --- Repository Context ---

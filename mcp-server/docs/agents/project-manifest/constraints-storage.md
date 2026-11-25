@@ -13,6 +13,7 @@
 ## Contents
 
 - [Knowledge Store Constraints](#knowledge-store-constraints)
+- [Task Store Constraints](#task-store-constraints)
 - [Schema Strictness Patterns](#schema-strictness-patterns)
 - [Multi-Store Architecture Constraints](#multi-store-architecture-constraints)
 - [Known Limitations](#known-limitations)
@@ -182,6 +183,68 @@ const ledgerPath = expectedRepo
 
 ---
 
+## Task Store Constraints
+
+### `.tasks/` Is a Dot-Directory with Its Own Lock Scope; Unreadable Files Are Never Overwritten
+
+**Rule:** Each store keeps its tasks in `{storePath}/.tasks/tasks.json` (`{ version: 1, last_updated, tasks[] }`), managed only through `src/storage/task-store.ts`. Writes MUST go through `mutateTaskFile()`, which runs the whole read-modify-write inside `withLock(taskDir(storePath))`, i.e. the lock scope is `{storePath}/.tasks`, never the store root (shared with `.repositories.json`) and never `.knowledge/`. Reads (`readTaskFile`) take no lock. `.tasks/` is a dot-directory and is skipped by project enumeration (`listAllProjects`, `detectProjectByCwd`) like `.knowledge/`.
+
+**Unreadable files are never overwritten:** a missing file reads as an empty file. An unparsable (e.g. Git merge-conflict markers) or schema-invalid file reads as `{ status: 'invalid', path, message }`; `mutateTaskFile` then throws `TaskFileInvalidError` naming the path and leaves the bytes untouched. Other I/O errors (`EACCES`, `EISDIR`, ...) are rethrown. A throwing mutator, or a mutated file that fails `TaskFileSchema`, writes nothing.
+
+**Rationale:** Stores are user-synced, often with Git. A "start from empty" policy would silently destroy tasks on the next write. A separate lock scope keeps task writes from contending with the registry and the knowledge store.
+
+**Anti-pattern:** Treating an `invalid` read as an empty file and writing over it; locking `storePath` instead of `taskDir(storePath)`.
+
+### The Store of a Task Is Derived from Its Location, Never Persisted
+
+**Rule:** A task's store is the store whose `.tasks/tasks.json` holds it. `src/storage/task-collection.ts` tags each loaded task with `store_id` and `store_label` (a `TaskView`) at read time; neither field is ever written to the task file. When the same task id appears in several stores, the first store in router order wins and later copies are ignored.
+
+**Rationale:** A persisted `store_id` goes stale when a store is re-imported under another id, and task files must stay portable between machines.
+
+**Anti-pattern:** Adding a `store_id` field to `TaskSchema`, or resolving duplicates by anything other than store order.
+
+---
+
+### Task IDs Are UUID v4; Priority Is `max + 1` with a Deterministic Tie-Breaker
+
+**Rule:** `createTask` assigns `id` via `randomUUID()` and a priority of the maximum priority over all readable stores plus one (`1` when no tasks exist). The maximum comes from a separate `loadAllTasks()` read, taken before the write lock, so two processes creating tasks at the same moment can end up with the same priority. This is accepted: `compareTasks` breaks priority ties deterministically, so the order stays stable and a duplicate priority is harmless.
+
+**Anti-pattern:** Relying on priorities being unique, or adding a cross-store lock to make `max + 1` atomic.
+
+---
+
+### The Task Colour Is Stored as an Id; Unknown Ids Pass Through
+
+**Rule:** `color` holds a palette id from `TASK_COLOR_IDS`, or `''` for none; the hex value is a GUI concern. Input is validated by `TaskColorInput` and violations throw `TaskValidationError`. On read, a stored id that is not in the palette is returned unchanged and `colorKey()` maps it to `'none'`, so it matches the `'none'` colour filter instead of failing the load.
+
+---
+
+### Task Reorder Is the Documented Exception to Read-Only Collation
+
+**Rule:** `reorderTasks(assignments)` is the one operation that writes across stores, and is a deliberate exception to [Multi-Store Collation Is Read-Only](#multi-store-collation-is-read-only). It first validates every id against the loaded collection (an unknown id throws `TaskNotFoundError` and nothing is applied), groups the assignments by owning store, then applies each group in a single `mutateTaskFile` call, one store after another. At most one store lock is held at any time; the locks are never nested.
+
+**Partial application is harmless:** a store that fails at write time (for example a corrupt file raising `TaskFileInvalidError`) is reported in `failed[]` (`{ store_id, ids, message }`) while the other stores are still applied. Because priority is an integer with a tie-breaker, a half-applied reorder leaves a valid, deterministic order.
+
+**Load-time versus write-time failures:** a store that is unreadable when the collection is loaded is invisible to `reorderTasks`, so ids that live in it raise `TaskNotFoundError` up front. `failed[]` covers only stores that fail during the write phase.
+
+**Anti-pattern:** Holding two store locks at once; treating `failed[]` as covering unreadable stores.
+
+---
+
+### Task Search Is OR-Ranked Substring Matching
+
+**Rule:** `searchTasks` lowercases the query, splits it on whitespace and de-duplicates the tokens. A task scores one point per token that occurs as a substring of its text, `ticket_label` and tags joined together (not whole-word matching); tasks with a score of zero are dropped. Results rank by score, then by the requested sort. An empty query behaves as `listTasks`. The search filter has no `colors` field.
+
+**Rationale:** OR semantics mirror `ledger_search_insights`: the Ledger Task Curator needs recall more than precision.
+
+---
+
+### The Storage Layer Reads Task Settings from `gui/config`
+
+**Note:** `task-collection.ts` imports `getTaskSettings` from `src/gui/config.ts`, an inverted dependency (storage depending on the GUI configuration module). It is accepted for now; moving the settings accessor to a neutral module is the clean fix.
+
+---
+
 ## Schema Strictness Patterns
 
 ### Dual-Schema Pattern — Strict Input Schemas, Permissive Storage Schemas
@@ -317,6 +380,8 @@ These constraints apply only when `stores.json` is present; its absence activate
 
 **Implementation:** `MultiStoreManager` provides only collation methods (`listAllProjects`, `getMergedRegistry`, `detectProjectByCwd`, `getRegistryConflicts`, `searchKnowledge`, `listKnowledge`). Write routing is exclusively the domain of `StoreRouter`.
 
+**Documented exception:** `reorderTasks()` in `src/storage/task-collection.ts` writes to several stores in one call; see [Task Reorder Is the Documented Exception to Read-Only Collation](#task-reorder-is-the-documented-exception-to-read-only-collation).
+
 ---
 
 ### The MCP Server Has No Sync Responsibility
@@ -335,11 +400,13 @@ These constraints apply only when `stores.json` is present; its absence activate
 
 **Exception:** The GUI and CLI allow users to specify a target store when creating a new repository entry — a user-facing configuration action, not an agent tool call.
 
+**Exception (task tools):** `ledger_add_task`, `ledger_list_tasks` and `ledger_search_tasks` take an optional `store_id`. Tasks are not tied to repositories, so there is no repository to derive a store from. Omitted, add writes to the default store and list/search read every store; an unknown id returns `isError: true` listing the valid ids. The other task tools address a task by its UUID and need no store. See `src/tools/tasks.ts` and Task Store Constraints.
+
 ---
 
 ### `gui-config.json` Is Server-Wide — One File per Process, Not per Store
 
-**Rule:** The GUI server uses a single `gui-config.json` for all behavioral settings (`auto_handoff_enabled`, `auto_archive_days`, etc.). In multi-store mode, this file lives at `~/.ai-insights/gui-config.json`. In single-store mode, it lives at `{ledgerRoot}/gui-config.json`. There is no per-store `gui-config.json`.
+**Rule:** The GUI server uses a single `gui-config.json` for all behavioral settings (`auto_handoff_enabled`, `auto_archive_days`, the `tasks_*` task display settings, etc.). In multi-store mode, this file lives at `~/.ai-insights/gui-config.json`. In single-store mode, it lives at `{ledgerRoot}/gui-config.json`. There is no per-store `gui-config.json`.
 
 **Rationale:** All current config fields are server-wide behavioral settings with no store-scoped semantics. Per-store configs would create ambiguity about which store's config governs server behavior when multiple stores are active.
 

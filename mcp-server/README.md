@@ -32,6 +32,7 @@ The Project Ledger MCP Server manages persistent project state for multi-agent A
 - **Auto-handoff** — agents are automatically routed to the next stage
 - **Infinite-loop protection** — depth counter prevents runaway handoff chains
 - **Knowledge base** — persistent cross-project insights with full-text search
+- **Task list** — a global, colour-coded task collection merged across stores, managed with six `ledger_*_task` tools
 - **Strategic vision** — repository-level planning with three-horizon goals
 - **Self-healing counters** — auto-corrects counter drift on status queries
 - **GUI dashboard** — web UI for monitoring, search, filtering, and dark mode
